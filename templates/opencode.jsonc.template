@@ -32,6 +32,14 @@
       "command": ["uvx", "--from", "{{LEGAL_AGENT_HOME}}/ru-legal/mcps/kad", "kad-mcp"],
       "enabled": true
     },
+    "egrul": {
+      "type": "local",
+      "command": ["uvx", "--from", "{{LEGAL_AGENT_HOME}}/ru-legal/mcps/egrul", "egrul-mcp"],
+      "environment": {
+        "API_FNS_KEY": "{{API_FNS_KEY}}"
+      },
+      "enabled": true
+    },
     "office-docs": {
       "type": "local",
       "command": ["uvx", "office-docs-mcp", "serve"],

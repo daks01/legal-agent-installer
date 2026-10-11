@@ -102,13 +102,17 @@
    read -s -p "Вставьте DeepSeek API Key: " DEEPSEEK_KEY < /dev/tty
    ```
    (`< /dev/tty` обязателен для запуска через `curl | bash` — критерий A1/A2)
+   **Шаг 3b (опционально)**: спросить ключ api-fns.ru для проверки контрагентов
+   (бесплатный тариф: ~100 запросов/метод, 1 IP). Enter — пропустить; при
+   пропуске MCP `egrul` в конфиге выключить (`enabled: false`). Ключ не логировать.
 5. **Шаг 4**: Установка OpenCode:
    ```bash
    curl -fsSL https://opencode.ai/install | bash
    ```
 6. **Шаг 5**: Запись `opencode.jsonc`:
    - Скопировать `templates/opencode.jsonc.template` в `~/.config/opencode/`
-   - Заменить `{{DEEPSEEK_KEY}}` и `{{LEGAL_AGENT_HOME}}` ($HOME/.local/share/legal-agent)
+   - Заменить `{{DEEPSEEK_KEY}}`, `{{LEGAL_AGENT_HOME}}` ($HOME/.local/share/legal-agent)
+     и `{{API_FNS_KEY}}` (пусто → выключить `egrul`)
    - Если файл уже есть — сделать `.bak`
 7. **Шаг 6**: Установка скилла `source-locked-ru`:
    - Скопировать `skills/source-locked-ru/` в `~/.config/opencode/skills/`
@@ -117,6 +121,7 @@
    - `uvx --from ~/.local/share/legal-agent/ru-legal/mcps/ru-legal-aggregator ru-legal-mcp` (проверка, с `RU_LEGAL_PACKS_ROOT`)
    - `uvx --from ~/.local/share/legal-agent/ru-legal/mcps/pravo pravo-mcp` (проверка) — законы РФ
    - `uvx --from ~/.local/share/legal-agent/ru-legal/mcps/kad kad-mcp` (проверка) — арбитраж
+   - `uvx --from ~/.local/share/legal-agent/ru-legal/mcps/egrul egrul-mcp` (проверка) — ЕГРЮЛ (при наличии ключа)
    - `uvx office-docs-mcp --help` (проверка)
    - Скопировать наш `sudrf-scraper-mcp/` в `~/.local/share/legal-agent/sudrf-scraper-mcp` (проверка `uvx --from ...`)
 9. **Шаг 8**: Установка `sudrfscraper` (см. NOTES.md — это не JAR, а zip-релиз):
