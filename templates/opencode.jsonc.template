@@ -16,7 +16,10 @@
   "mcp": {
     "ru-legal": {
       "type": "local",
-      "command": ["uvx", "ru-legal-mcp"],
+      "command": ["uvx", "--from", "{{LEGAL_AGENT_HOME}}/ru-legal/mcps/ru-legal-aggregator", "ru-legal-mcp"],
+      "environment": {
+        "RU_LEGAL_PACKS_ROOT": "{{LEGAL_AGENT_HOME}}/ru-legal/packs"
+      },
       "enabled": true
     },
     "office-docs": {

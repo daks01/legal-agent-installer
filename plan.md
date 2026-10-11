@@ -54,18 +54,23 @@
 3. Проверить, что OpenCode подхватывает MCP из этого формата
 4. Написать функцию `write_config()` в будущем `install.sh`
 
-**Содержимое шаблона**:
+**Содержимое шаблона** (`ru-legal-mcp` нет на PyPI — ставим `AlsKozlov/ru-legal`
+с GitHub, см. `NOTES.md`; плейсхолдеры `{{DEEPSEEK_KEY}}` и `{{LEGAL_AGENT_HOME}}`):
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
   "provider": {
     "deepseek": {
-      "apiKey": "{{DEEPSEEK_KEY}}",
+      "options": { "apiKey": "{{DEEPSEEK_KEY}}" },
       "models": { "DeepSeek-V4-Flash": { "id": "deepseek-chat" } }
     }
   },
   "mcp": {
-    "ru-legal":      { "type": "local", "command": ["uvx", "ru-legal-mcp"] },
+    "ru-legal": {
+      "type": "local",
+      "command": ["uvx", "--from", "{{LEGAL_AGENT_HOME}}/ru-legal/mcps/ru-legal-aggregator", "ru-legal-mcp"],
+      "environment": { "RU_LEGAL_PACKS_ROOT": "{{LEGAL_AGENT_HOME}}/ru-legal/packs" }
+    },
     "office-docs":   { "type": "local", "command": ["uvx", "office-docs-mcp", "serve"] },
     "sudrf-scraper": { "type": "local", "command": ["uvx", "sudrf-scraper-mcp"] }
   }
@@ -101,7 +106,8 @@
 7. **Шаг 6**: Установка скилла `source-locked-ru`:
    - Скопировать `skills/source-locked-ru/` в `~/.config/opencode/skills/`
 8. **Шаг 7**: Установка MCP-серверов:
-   - `uvx ru-legal-mcp --help` (проверка)
+   - `git clone --depth 1 https://github.com/AlsKozlov/ru-legal.git ~/.local/share/legal-agent/ru-legal` (обновление — `git -C ... pull`)
+   - `uvx --from ~/.local/share/legal-agent/ru-legal/mcps/ru-legal-aggregator ru-legal-mcp` (проверка, с `RU_LEGAL_PACKS_ROOT`)
    - `uvx office-docs-mcp --help` (проверка)
    - `uv tool install sudrf-scraper-mcp` (наш кастомный)
 9. **Шаг 8**: Установка `sudrfscraper`:
