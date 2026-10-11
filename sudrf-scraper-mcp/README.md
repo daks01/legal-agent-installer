@@ -45,10 +45,25 @@ npx @modelcontextprotocol/inspector uvx --from . sudrf-scraper-mcp
 
 ### Переменные окружения
 
-| Переменная    | По умолчанию                                  | Смысл                          |
-| ------------- | --------------------------------------------- | ------------------------------ |
-| `SUDRF_HOME`  | `~/.local/share/legal-agent/sudrfscraper`     | Папка распакованного релиза    |
-| `SUDRF_PORT`  | `8080`                                        | Порт веб-интерфейса приложения |
+| Переменная          | По умолчанию                                 | Смысл                          |
+| ------------------- | -------------------------------------------- | ------------------------------ |
+| `SUDRF_HOME`        | `~/.local/share/legal-agent/sudrfscraper`    | Папка распакованного релиза    |
+| `SUDRF_PORT`        | `8080`                                       | Порт веб-интерфейса приложения |
+| `SUDRF_FIREFOX_BIN` | авто (системный Firefox → сборка Playwright) | Явный путь к бинарнику Firefox |
+
+### Нюансы релиза sudrfscraper (проверено на v0.3.0.3)
+
+- В macOS-сборку положен **Linux-бинарник geckodriver** (баг упаковки автора).
+  MCP это диагностирует (`geckodriver_compatible: false`); замена — скачать
+  [официальный geckodriver](https://github.com/mozilla/geckodriver/releases)
+  и положить в `src/main/resources/macOS/geckodriver`. `install.sh` делает это сам.
+- Firefox можно не ставить системно: подходит сборка Playwright
+  (`npx playwright install firefox`) — MCP находит её автоматически и передаёт
+  JVM через `JAVA_TOOL_OPTIONS=-Dwebdriver.firefox.bin=...` при старте приложения.
+- Для разработки запускай `uvx --no-cache --from . sudrf-scraper-mcp`: иначе
+  `uvx` переиспользует закэшированную сборку и не видит правки во вложенных файлах.
+- Сайты судов блокируют зарубежные IP: сбор из-за VPN/из-за границы даёт
+  «Server error» по всем судам — нужен российский IP.
 
 ## Инструменты
 

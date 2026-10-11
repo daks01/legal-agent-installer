@@ -114,10 +114,11 @@
    - `uvx --from ~/.local/share/legal-agent/ru-legal/mcps/ru-legal-aggregator ru-legal-mcp` (проверка, с `RU_LEGAL_PACKS_ROOT`)
    - `uvx office-docs-mcp --help` (проверка)
    - `uv tool install sudrf-scraper-mcp` (наш кастомный)
-9. **Шаг 8**: Установка `sudrfscraper`:
-   - Проверить Java (`command -v java`)
-   - Проверить Firefox (`command -v firefox` на Linux, `/Applications/Firefox.app` на macOS)
-   - Скачать JAR в `~/.local/share/legal-agent/sudrfscraper/`
+9. **Шаг 8**: Установка `sudrfscraper` (см. NOTES.md — это не JAR, а zip-релиз):
+   - Скачать последний релиз (x64) с GitHub Releases и распаковать в `~/.local/share/legal-agent/sudrfscraper/`
+   - macOS: заменить битый geckodriver (в релизе — Linux-бинарник) на официальный
+   - Снять карантин macOS (`xattr -dr com.apple.quarantine`), выставить +x на `run.sh`, JRE, geckodriver
+   - Firefox: системный, иначе предложить `npx playwright install firefox` (MCP подхватит)
 10. **Шаг 9**: Создать `~/knowledge_base/` с подпапками:
     - `court_practice/` (для JSON от скрапера)
     - `consultant/` (для экспорта из КонсультантПлюс)

@@ -174,21 +174,59 @@ def _find_run_sh(home: Path) -> Path | None:
 
 
 def _find_bundled_java(home: Path) -> Path | None:
-    for pattern in ("*/jre/bin/java", "jre/bin/java", "*/jre/bin/java.exe", "jre/bin/java.exe"):
+    patterns = (
+        "*/jre/Home/bin/java",  # macOS-раскладка JRE из релиза
+        "jre/Home/bin/java",
+        "*/jre/bin/java",
+        "jre/bin/java",
+        "*/jre/Home/bin/java.exe",
+        "jre/Home/bin/java.exe",
+        "*/jre/bin/java.exe",
+        "jre/bin/java.exe",
+    )
+    for pattern in patterns:
         for candidate in sorted(home.glob(pattern)):
             return candidate
     return None
 
 
 def _find_firefox() -> str | None:
+    """Найти исполняемый файл Firefox: SUDRF_FIREFOX_BIN → системный → Playwright."""
+    if (env_bin := os.getenv("SUDRF_FIREFOX_BIN")) and Path(env_bin).is_file():
+        return env_bin
     if sys.platform == "darwin":
-        app = Path("/Applications/Firefox.app")
-        if app.is_dir():
-            return str(app)
+        app_binary = Path("/Applications/Firefox.app/Contents/MacOS/firefox")
+        if app_binary.is_file():
+            return str(app_binary)
+        for app in sorted(
+            Path.home().glob("Library/Caches/ms-playwright/firefox-*/firefox/Nightly.app")
+        ):
+            binary = app / "Contents/MacOS/firefox"
+            if binary.is_file():
+                return str(binary)
     for name in ("firefox", "firefox-esr"):
         if found := shutil.which(name):
             return found
     return None
+
+
+def _geckodriver_path(home: Path) -> Path | None:
+    for pattern in ("src/main/resources/*/geckodriver", "src/main/resources/*/geckodriver.exe"):
+        for candidate in sorted(home.glob(pattern)):
+            return candidate
+    return None
+
+
+def _geckodriver_compatible(path: Path) -> bool:
+    try:
+        magic = path.read_bytes()[:4]
+    except OSError:
+        return False
+    if sys.platform == "darwin":
+        return magic != b"\x7fELF"
+    if sys.platform.startswith("linux"):
+        return magic == b"\x7fELF"
+    return True
 
 
 def _app_responds() -> bool:
@@ -260,9 +298,28 @@ def _require_installation() -> tuple[Path, Path]:
     if _find_firefox() is None:
         raise ToolError(
             "Не найден браузер Firefox — SUDRF Scraper использует Firefox WebDriver.\n"
-            f"Что делать: установи Firefox ({FIREFOX_URL}) и повтори вызов."
+            f"Что делать: установи Firefox ({FIREFOX_URL}), либо Playwright-сборку "
+            f"(`npx playwright install firefox`), либо укажи бинарник в SUDRF_FIREFOX_BIN=/путь/до/firefox."
+        )
+    geckodriver = _geckodriver_path(home)
+    if geckodriver is not None and not _geckodriver_compatible(geckodriver):
+        raise ToolError(
+            f"Встроенный geckodriver не подходит для этой ОС: {geckodriver} "
+            f"(известный баг релиза sudrfscraper — в macOS-сборку положен Linux-бинарник).\n"
+            "Что делать: скачай geckodriver для своей ОС с "
+            "https://github.com/mozilla/geckodriver/releases и замени этот файл. "
+            "install.sh делает это автоматически."
         )
     return home, run_sh
+
+
+def _start_env() -> dict[str, str]:
+    """Окружение для run.sh: подсказать Selenium, где лежит Firefox."""
+    env = os.environ.copy()
+    firefox = _find_firefox()
+    if firefox and not env.get("JAVA_TOOL_OPTIONS"):
+        env["JAVA_TOOL_OPTIONS"] = f"-Dwebdriver.firefox.bin={firefox}"
+    return env
 
 
 def _ensure_app_running(home: Path, run_sh: Path, auto_start: bool) -> None:
@@ -279,6 +336,7 @@ def _ensure_app_running(home: Path, run_sh: Path, auto_start: bool) -> None:
         subprocess.Popen(
             ["/bin/sh", str(run_sh)],
             cwd=str(home),
+            env=_start_env(),
             stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=subprocess.STDOUT,
@@ -447,6 +505,8 @@ def check_sudrf_environment() -> dict[str, Any]:
     firefox = _find_firefox()
     bundled_java = _find_bundled_java(home)
     app_running = _app_responds()
+    geckodriver = _geckodriver_path(home)
+    geckodriver_ok = _geckodriver_compatible(geckodriver) if geckodriver else None
 
     problems: list[str] = []
     if run_sh is None:
@@ -454,11 +514,20 @@ def check_sudrf_environment() -> dict[str, Any]:
             f"SUDRF Scraper не установлен в {home}. Запусти install.sh или скачай релиз с {SUDRF_RELEASES_URL}."
         )
     if firefox is None:
-        problems.append(f"Firefox не найден. Установи его: {FIREFOX_URL}")
+        problems.append(
+            f"Firefox не найден. Установи его ({FIREFOX_URL}), либо Playwright-сборку "
+            "(`npx playwright install firefox`), либо задай SUDRF_FIREFOX_BIN=/путь/до/firefox."
+        )
     if run_sh is not None and bundled_java is None and shutil.which("java") is None:
         problems.append(
             "Не найдена ни встроенная JRE (папка jre/ внутри SUDRF Scraper), ни системная Java. "
             "Переустанови SUDRF Scraper из официального релиза."
+        )
+    if geckodriver is not None and geckodriver_ok is False:
+        problems.append(
+            f"Встроенный geckodriver не подходит для этой ОС: {geckodriver} "
+            "(баг релиза sudrfscraper — в macOS-сборку положен Linux-бинарник). Замени на "
+            "официальный с https://github.com/mozilla/geckodriver/releases (install.sh делает это сам)."
         )
     if run_sh is not None and not app_running and _port_open():
         problems.append(
@@ -479,6 +548,8 @@ def check_sudrf_environment() -> dict[str, Any]:
         "firefox": firefox,
         "bundled_java": str(bundled_java) if bundled_java else None,
         "system_java": shutil.which("java"),
+        "geckodriver": str(geckodriver) if geckodriver else None,
+        "geckodriver_compatible": geckodriver_ok,
         "app_running": app_running,
         "platform": sys.platform,
         "problems": problems,
@@ -693,9 +764,10 @@ def get_sudrf_status(
 ) -> dict[str, Any]:
     """Статус SUDRF Scraper: запущено ли приложение, идёт ли сбор, сколько собрано.
 
-    Возвращает: app_running, scraping_in_progress, records_collected (строк в
-    JSON-выгрузке), finished (сбор завершён), last_log_lines. Используй для
-    периодического опроса, пока идёт сбор.
+    Возвращает: app_running, scraping_page_active (страница /scraping — нюанс:
+    флаг в приложении не сбрасывается после первого сбора, поэтому ориентируйся
+    на in_progress), records_collected (строк в JSON-выгрузке), finished
+    (сбор завершён), last_log_lines. Используй для периодического опроса.
     """
     status: dict[str, Any] = {
         "app_running": _app_responds(),
@@ -709,9 +781,9 @@ def get_sudrf_status(
         return status
 
     try:
-        status["scraping_in_progress"] = 'id="captchaImage"' in _get("/scraping").text
+        status["scraping_page_active"] = 'id="captchaImage"' in _get("/scraping").text
     except ToolError:
-        status["scraping_in_progress"] = None
+        status["scraping_page_active"] = None
 
     if project_name:
         results_dir = Path(directory).expanduser() / project_name
@@ -720,9 +792,12 @@ def get_sudrf_status(
         status["output_file"] = str(json_file)
         if json_file.exists():
             status["records_collected"] = _count_jsonl_lines(json_file)
-        status["finished"] = (results_dir / f"{project_name}_summary.txt").exists() or (
+        finished = (results_dir / f"{project_name}_summary.txt").exists() or (
             results_dir / f"{project_name}_meta.json"
         ).exists()
+        has_files = results_dir.exists() and any(results_dir.iterdir())
+        status["finished"] = finished
+        status["in_progress"] = bool(has_files and not finished)
         if results_dir.exists():
             status["files"] = sorted(path.name for path in results_dir.glob(f"{project_name}*"))
         status["last_log_lines"] = _tail(results_dir / f"{project_name}_logs.log", 15)
