@@ -23,26 +23,30 @@
 
 ## Этап 1. MCP-сервер `sudrf-scraper-mcp` (2-3 часа)
 
-**Задачи**:
-1. Создать `pyproject.toml` с зависимостями (`fastmcp`, `subprocess`)
-2. Написать `server.py`:
-   - Tool `run_sudrf_scrape(query, court_type, date_from, date_to, limit)`
-   - Проверка наличия Java и Firefox перед запуском
-   - Запуск `sudrfscraper.jar` через `subprocess.run` с таймаутом 600 сек
-   - Возврат `{status, output_file, message}`
-3. Написать `README.md` для MCP-сервера (как установить, как тестировать)
-4. Протестировать локально:
-   ```bash
-   uvx --from . sudrf-scraper-mcp
-   # В другом терминале — MCP Inspector:
-   npx @modelcontextprotocol/inspector uvx --from . sudrf-scraper-mcp
-   ```
+**Уточнение после изучения sudrfscraper**: это не CLI/JAR, а Spring Boot
+приложение с локальным веб-интерфейсом (localhost:8080); сбор асинхронный,
+капча вводится вручную. MCP общается с приложением по HTTP API.
+Подробности — `NOTES.md` (Этап 1).
 
-**Артефакт**: работающий MCP-сервер, который можно вызвать из Inspector.
+**Задачи**:
+1. Создать `pyproject.toml` с зависимостями (`fastmcp`, `httpx`)
+2. Написать `server.py`:
+   - Инструменты: `run_sudrf_scrape`, `get_sudrf_status`, `get_sudrf_results`,
+     `submit_sudrf_captcha`, `stop_sudrf_scraper`, `check_sudrf_environment`,
+     `list_sudrf_regions`
+   - Подъём приложения: фоновый `run.sh` из `SUDRF_HOME`, ожидание старта ≤ 90 сек
+   - Проверки Firefox и встроенной JRE — с понятными ошибками
+   - `limit` не поддерживается sudrfscraper (см. `NOTES.md`)
+3. Написать `README.md` для MCP-сервера (как установить, как тестировать)
+4. Протестировать локально (MCP stdio smoke-тест): сервер стартует, инструменты
+   отвечают, ошибки окружения — понятные
+
+**Артефакт**: работающий MCP-сервер.
 
 **Риски**:
-- Синтаксис CLI `sudrfscraper` может отличаться от ожидаемого — уточнить после скачивания JAR
-- Firefox может требовать GUI — на VPS не заработает
+- Полный E2E требует Firefox и x64-сборку (на Apple Silicon — Rosetta);
+  проверка — на чистой машине (Этап 3/5)
+- Капча вручную — авторешение в backlog
 
 ---
 
