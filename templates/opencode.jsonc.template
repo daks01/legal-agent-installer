@@ -29,7 +29,7 @@
     },
     "sudrf-scraper": {
       "type": "local",
-      "command": ["uvx", "sudrf-scraper-mcp"],
+      "command": ["uvx", "--from", "{{LEGAL_AGENT_HOME}}/sudrf-scraper-mcp", "sudrf-scraper-mcp"],
       "enabled": true
     }
   }
