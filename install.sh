@@ -1,0 +1,519 @@
+#!/usr/bin/env bash
+#
+# Legal Agent Installer — разворачивает AI-агента для юридической фирмы.
+# Использование: bash install.sh   (запуск из клонированного репозитория)
+#
+# Документация и критерии приёмки: docs/acceptance-criteria.md
+# Ключ DeepSeek и (опционально) api-fns вводятся интерактивно и никогда не логируются.
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Константы
+# ---------------------------------------------------------------------------
+VERSION="0.1.0"
+LEGAL_AGENT_HOME="${LEGAL_AGENT_HOME:-$HOME/.local/share/legal-agent}"
+OPENCODE_CONFIG_DIR="$HOME/.config/opencode"
+OPENCODE_CONFIG_FILE="$OPENCODE_CONFIG_DIR/opencode.jsonc"
+SKILLS_DIR="$OPENCODE_CONFIG_DIR/skills"
+KNOWLEDGE_BASE="$HOME/knowledge_base"
+LOG_FILE="$PWD/install.log"
+
+RU_LEGAL_REPO="https://github.com/AlsKozlov/ru-legal.git"
+RU_LEGAL_DIR="$LEGAL_AGENT_HOME/ru-legal"
+SUDRF_MCP_DIR="$LEGAL_AGENT_HOME/sudrf-scraper-mcp"
+SUDRF_APP_DIR="$LEGAL_AGENT_HOME/sudrfscraper"
+SUDRF_RELEASE_TAG="v0.3.0.3"
+GECKODRIVER_VERSION="v0.37.1"
+
+# Тестовый/неинтерактивный режим: ключи можно передать через переменные окружения
+DEEPSEEK_KEY="${DEEPSEEK_KEY:-}"
+API_FNS_KEY="${API_FNS_KEY:-}"
+FORCE="${FORCE:-0}"   # FORCE=1 — переустановить sudrfscraper заново
+
+# ---------------------------------------------------------------------------
+# Пути ресурсов (скрипт запускается из клонированного репозитория)
+# ---------------------------------------------------------------------------
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+TEMPLATE_FILE="$SCRIPT_DIR/templates/opencode.jsonc.template"
+SKILL_SRC="$SCRIPT_DIR/skills/source-locked-ru"
+SUDRF_MCP_SRC="$SCRIPT_DIR/sudrf-scraper-mcp"
+
+# ---------------------------------------------------------------------------
+# Цвета и логирование (лог — без цветовых кодов и без секретов)
+# ---------------------------------------------------------------------------
+if [ -t 1 ]; then
+  GREEN=$'\033[0;32m'; RED=$'\033[0;31m'; YELLOW=$'\033[0;33m'; BLUE=$'\033[0;36m'; BOLD=$'\033[1m'; NC=$'\033[0m'
+else
+  GREEN=""; RED=""; YELLOW=""; BLUE=""; BOLD=""; NC=""
+fi
+
+log()  { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG_FILE"; }
+step() { printf '\n%s▸ Шаг %s: %s%s\n' "$BOLD" "$1" "$2" "$NC"; log "Шаг $1: $2"; }
+ok()   { printf '  %s✓%s %s\n' "$GREEN" "$NC" "$1"; log "  ✓ $1"; }
+warn() { printf '  %s!%s %s\n' "$YELLOW" "$NC" "$1"; log "  ! $1"; }
+note() { printf '  %s•%s %s\n' "$BLUE" "$NC" "$1"; log "  • $1"; }
+
+# Есть ли управляющий терминал (важно для curl|bash и неинтерактивных запусков)
+HAS_TTY=""
+{ : > /dev/tty; } 2>/dev/null && HAS_TTY=1
+tty_print() { [ -n "$HAS_TTY" ] && printf '%s' "$1" > /dev/tty || true; }
+tty_newline() { [ -n "$HAS_TTY" ] && printf '\n' > /dev/tty || true; }
+
+fail() {
+  printf '\n  %s✗ %s%s\n' "$RED" "$1" "$NC" >&2
+  log "  ✗ $1"
+  if [ -n "${2:-}" ]; then
+    printf '    %s\n' "$2" >&2
+    log "    $2"
+  fi
+  printf '\n%sУстановка прервана.%s Лог: %s\n' "$RED" "$NC" "$LOG_FILE" >&2
+  exit 1
+}
+
+trap 'fail "Непредвиденная ошибка (строка $LINENO). Смотри $LOG_FILE"' ERR
+
+# ---------------------------------------------------------------------------
+# Вспомогательные проверки
+# ---------------------------------------------------------------------------
+require_resources() {
+  [ -f "$TEMPLATE_FILE" ] || fail "Не найден шаблон конфига: $TEMPLATE_FILE" \
+    "Запускай install.sh из клонированного репозитория legal-agent-installer."
+  [ -f "$SKILL_SRC/SKILL.md" ] || fail "Не найден скилл: $SKILL_SRC/SKILL.md" \
+    "Репозиторий повреждён — скачай его заново."
+  [ -f "$SUDRF_MCP_SRC/pyproject.toml" ] || fail "Не найден sudrf-scraper-mcp: $SUDRF_MCP_SRC" \
+    "Репозиторий повреждён — скачай его заново."
+}
+
+check_network() {
+  curl -fsS --max-time 15 -o /dev/null https://pypi.org/ 2>/dev/null \
+    || fail "Нет доступа к интернету (pypi.org не отвечает)." \
+      "Проверь соединение и повтори запуск: bash install.sh"
+}
+
+detect_os() {
+  OS="unknown"
+  case "$(uname -s)" in
+    Darwin) OS="macos" ;;
+    Linux)  OS="linux" ;;
+    *) fail "Неподдерживаемая ОС: $(uname -s)." \
+         "Поддерживаются macOS и Linux (включая WSL2). Windows — через install.ps1." ;;
+  esac
+  if [ "$OS" = "linux" ] && grep -qi microsoft /proc/version 2>/dev/null; then
+    os_hint="Ubuntu в WSL2"
+  elif [ "$OS" = "macos" ]; then
+    os_hint="macOS $(sw_vers -productVersion 2>/dev/null || echo '')"
+  else
+    os_hint="Linux"
+  fi
+  ok "ОС: $os_hint"
+}
+
+# ---------------------------------------------------------------------------
+# Шаг 1. Базовые инструменты и PATH
+# ---------------------------------------------------------------------------
+check_system_tools() {
+  if ! command -v curl >/dev/null 2>&1; then
+    if [ "$OS" = "macos" ]; then
+      fail "Не найден curl." "Он входит в macOS — возможно, повреждён PATH. Проверь: echo \$PATH"
+    else
+      fail "Не найден curl." "Установи: sudo apt install -y curl"
+    fi
+  fi
+  if ! command -v git >/dev/null 2>&1; then
+    if [ "$OS" = "macos" ]; then
+      fail "Не найден git." "Установи инструменты разработчика: xcode-select --install"
+    else
+      fail "Не найден git." "Установи: sudo apt install -y git"
+    fi
+  fi
+  if ! command -v unzip >/dev/null 2>&1; then
+    if [ "$OS" = "macos" ]; then
+      fail "Не найден unzip." "Он входит в macOS — проверь PATH."
+    else
+      fail "Не найден unzip." "Установи: sudo apt install -y unzip"
+    fi
+  fi
+  ok "curl, git и unzip на месте"
+
+  mkdir -p "$LEGAL_AGENT_HOME"
+  export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"
+}
+
+install_uv() {
+  if command -v uv >/dev/null 2>&1; then
+    ok "uv уже установлен: $(uv --version)"
+  else
+    note "Устанавливаю uv (менеджер Python-пакетов, без sudo)…"
+    curl -LsSf https://astral.sh/uv/install.sh | sh >>"$LOG_FILE" 2>&1 \
+      || fail "Не удалось установить uv." "Повтори вручную: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    export PATH="$HOME/.local/bin:$PATH"
+    command -v uv >/dev/null 2>&1 || fail "uv установлен, но не найден в PATH." \
+      "Добавь в ~/.zshrc: export PATH=\"\$HOME/.local/bin:\$PATH\" и перезапусти терминал."
+    ok "uv установлен: $(uv --version)"
+  fi
+  command -v uvx >/dev/null 2>&1 || fail "uvx не найден после установки uv." \
+    "Добавь в ~/.zshrc: export PATH=\"\$HOME/.local/bin:\$PATH\" и перезапусти терминал."
+}
+
+install_opencode() {
+  if command -v opencode >/dev/null 2>&1; then
+    ok "opencode уже установлен: $(opencode --version 2>/dev/null || echo 'есть')"
+    return
+  fi
+  note "Устанавливаю OpenCode (официальный установщик, без sudo)…"
+  curl -fsSL https://opencode.ai/install | bash >>"$LOG_FILE" 2>&1 \
+    || fail "Не удалось установить OpenCode." "Повтори вручную: curl -fsSL https://opencode.ai/install | bash"
+  export PATH="$HOME/.opencode/bin:$PATH"
+  command -v opencode >/dev/null 2>&1 || fail "opencode установлен, но не найден в PATH." \
+    "Добавь в ~/.zshrc: export PATH=\"\$HOME/.opencode/bin:\$PATH\" и перезапусти терминал."
+  ok "opencode установлен: $(opencode --version 2>/dev/null || echo 'есть')"
+}
+
+# ---------------------------------------------------------------------------
+# Шаг 2. Ключи (не логируются)
+# ---------------------------------------------------------------------------
+prompt_secret() {
+  # $1 — текст приглашения; читает с /dev/tty (важно для curl|bash), не эхоит
+  local prompt="$1" value=""
+  if [ -n "$HAS_TTY" ]; then
+    tty_print "$prompt"
+    IFS= read -rs value < /dev/tty || true
+    tty_newline
+  else
+    IFS= read -rs value || true
+  fi
+  printf '%s' "$value"
+}
+
+ask_keys() {
+  if [ -z "$DEEPSEEK_KEY" ]; then
+    note "Ключ DeepSeek: получить можно на https://platform.deepseek.com/api_keys"
+    DEEPSEEK_KEY="$(prompt_secret 'Вставьте DeepSeek API Key (Enter — пропустить): ')"
+  fi
+  if [ -n "$DEEPSEEK_KEY" ]; then
+    ok "Ключ DeepSeek получен (в лог не записан)"
+  else
+    warn "Ключ DeepSeek не введён."
+    note "Агент не сможет отвечать до добавления ключа. Позже: открой $OPENCODE_CONFIG_FILE и замени {{ВАШ_КЛЮЧ}}."
+    DEEPSEEK_KEY="ВАШ_КЛЮЧ_DEEPSEEK"
+  fi
+
+  if [ -z "$API_FNS_KEY" ]; then
+    tty_newline
+    note "Опционально: проверка контрагентов в ЕГРЮЛ (api-fns.ru)."
+    note "Бесплатный тариф: ~100 запросов на метод, доступ с одного IP. Регистрация: https://api-fns.ru"
+    API_FNS_KEY="$(prompt_secret 'Вставьте API key api-fns.ru (Enter — пропустить): ')"
+  fi
+  if [ -n "$API_FNS_KEY" ]; then
+    ok "Ключ api-fns получен (в лог не записан)"
+  else
+    warn "Ключ api-fns не введён — MCP egrul будет выключен (можно включить позже в конфиге)"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Шаг 3. Конфиг opencode.jsonc
+# ---------------------------------------------------------------------------
+render_config() {
+  local rendered
+  rendered="$(sed -e "s|{{DEEPSEEK_KEY}}|$DEEPSEEK_KEY|g" \
+                  -e "s|{{LEGAL_AGENT_HOME}}|$LEGAL_AGENT_HOME|g" \
+                  -e "s|{{API_FNS_KEY}}|$API_FNS_KEY|g" \
+                  "$TEMPLATE_FILE")"
+  if [ -z "$API_FNS_KEY" ]; then
+    # выключить egrul, если ключа нет (диапазон от блока "egrul" до его "enabled": true)
+    rendered="$(printf '%s\n' "$rendered" | sed '/"egrul": {/,/"enabled": true/ s/"enabled": true/"enabled": false/')"
+  fi
+  printf '%s\n' "$rendered"
+}
+
+write_config() {
+  mkdir -p "$OPENCODE_CONFIG_DIR"
+  local rendered; rendered="$(render_config)"
+
+  if [ -f "$OPENCODE_CONFIG_FILE" ]; then
+    if [ "$(cat "$OPENCODE_CONFIG_FILE")" = "$rendered" ]; then
+      ok "opencode.jsonc уже актуален — не трогаю"
+      return
+    fi
+    cp "$OPENCODE_CONFIG_FILE" "$OPENCODE_CONFIG_FILE.bak"
+    warn "Существующий конфиг сохранён как opencode.jsonc.bak"
+  fi
+  printf '%s\n' "$rendered" > "$OPENCODE_CONFIG_FILE"
+  ok "Конфиг записан: $OPENCODE_CONFIG_FILE"
+}
+
+# ---------------------------------------------------------------------------
+# Шаг 4. Скилл source-locked-ru
+# ---------------------------------------------------------------------------
+install_skill() {
+  mkdir -p "$SKILLS_DIR"
+  mkdir -p "$SKILLS_DIR/source-locked-ru"
+  cp "$SKILL_SRC/SKILL.md" "$SKILLS_DIR/source-locked-ru/SKILL.md"
+  ok "Скилл установлен: $SKILLS_DIR/source-locked-ru/SKILL.md"
+}
+
+# ---------------------------------------------------------------------------
+# Шаг 5. MCP-серверы
+# ---------------------------------------------------------------------------
+clone_ru_legal() {
+  if [ -d "$RU_LEGAL_DIR/.git" ]; then
+    note "ru-legal уже склонирован — обновляю (git pull)…"
+    if git -C "$RU_LEGAL_DIR" pull --ff-only -q >>"$LOG_FILE" 2>&1; then
+      ok "ru-legal обновлён"
+    else
+      warn "Не удалось обновить ru-legal (git pull). Использую текущую версию."
+    fi
+  else
+    note "Клонирую ru-legal (законы РФ + скиллы, Apache-2.0)…"
+    rm -rf "$RU_LEGAL_DIR"
+    git clone --depth 1 -q "$RU_LEGAL_REPO" "$RU_LEGAL_DIR" >>"$LOG_FILE" 2>&1 \
+      || fail "Не удалось склонировать ru-legal." "Проверь доступ к github.com и повтори."
+    ok "ru-legal склонирован в $RU_LEGAL_DIR"
+  fi
+}
+
+copy_sudrf_mcp() {
+  rm -rf "$SUDRF_MCP_DIR"
+  mkdir -p "$SUDRF_MCP_DIR"
+  cp -R "$SUDRF_MCP_SRC/." "$SUDRF_MCP_DIR/"
+  rm -rf "$SUDRF_MCP_DIR/.ruff_cache" "$SUDRF_MCP_DIR/src"/*/__pycache__ 2>/dev/null || true
+  # uvx кэширует локальные сборки — после обновления чистим кэш пакета
+  uv cache clean sudrf-scraper-mcp >>"$LOG_FILE" 2>&1 || true
+  ok "sudrf-scraper-mcp разложен в $SUDRF_MCP_DIR"
+}
+
+check_mcp_servers() {
+  local ok_count=0
+  local checks=(
+    "ru-legal-mcp|$RU_LEGAL_DIR/mcps/ru-legal-aggregator|ru_legal_mcp"
+    "pravo-mcp|$RU_LEGAL_DIR/mcps/pravo|pravo_mcp"
+    "kad-mcp|$RU_LEGAL_DIR/mcps/kad|kad_mcp"
+    "egrul-mcp|$RU_LEGAL_DIR/mcps/egrul|egrul_mcp"
+    "sudrf-scraper-mcp|$SUDRF_MCP_DIR|sudrf_scraper_mcp"
+  )
+  for entry in "${checks[@]}"; do
+    IFS='|' read -r name dir module <<<"$entry"
+    note "Проверяю $name (первый запуск может занять минуту)…"
+    if uvx --from "$dir" python -c "import $module" >>"$LOG_FILE" 2>&1; then
+      ok "$name — готов"
+      ok_count=$((ok_count + 1))
+    else
+      warn "$name — не собрался. Подробности: $LOG_FILE"
+    fi
+  done
+  if uvx --from office-docs-mcp python -c "import office_docs_mcp" >>"$LOG_FILE" 2>&1; then
+    ok "office-docs-mcp — готов"
+    ok_count=$((ok_count + 1))
+  else
+    warn "office-docs-mcp — не установился. Проверь интернет и повтори запуск."
+  fi
+  ok "MCP-серверы готовы: $ok_count из 6"
+}
+
+# ---------------------------------------------------------------------------
+# Шаг 6. sudrfscraper (судебная практика), macOS/Linux
+# ---------------------------------------------------------------------------
+sudrf_release_zip() {
+  case "$OS" in
+    macos) echo "macOS-x64.sudrfscraper.zip" ;;
+    linux) echo "linux-x64.sudrfscraper.zip" ;;
+  esac
+}
+
+install_sudrfscraper() {
+  if [ -f "$SUDRF_APP_DIR/run.sh" ] && [ "$FORCE" != "1" ]; then
+    ok "sudrfscraper уже установлен: $SUDRF_APP_DIR"
+    note "Переустановить: FORCE=1 bash install.sh"
+    patch_court_configs
+    return
+  fi
+
+  local zip_name tmp_dir url
+  zip_name="$(sudrf_release_zip)"
+  url="https://github.com/tochno-st/sudrfscraper/releases/download/$SUDRF_RELEASE_TAG/$zip_name"
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "${tmp_dir:-}" || true' RETURN
+
+  note "Скачиваю sudrfscraper ($SUDRF_RELEASE_TAG, ~190 МБ)…"
+  curl -L --fail --silent --show-error -o "$tmp_dir/app.zip" "$url" >>"$LOG_FILE" 2>&1 \
+    || fail "Не удалось скачать sudrfscraper." "Проверь доступ к github.com и повтори запуск."
+
+  note "Распаковываю…"
+  unzip -q "$tmp_dir/app.zip" -d "$tmp_dir/app" || fail "Не удалось распаковать архив sudrfscraper."
+  local inner; inner="$(find "$tmp_dir/app" -maxdepth 1 -mindepth 1 -type d | head -1)"
+  rm -rf "$SUDRF_APP_DIR"
+  mkdir -p "$SUDRF_APP_DIR"
+  cp -R "$inner/." "$SUDRF_APP_DIR/"
+
+  if [ "$OS" = "macos" ]; then
+    fix_geckodriver_macos
+    xattr -dr com.apple.quarantine "$SUDRF_APP_DIR" 2>/dev/null || true
+  fi
+  chmod +x "$SUDRF_APP_DIR/run.sh" "$SUDRF_APP_DIR/src/main/resources/"*/geckodriver 2>/dev/null || true
+  chmod +x "$SUDRF_APP_DIR/jre/Home/bin/java" "$SUDRF_APP_DIR/jre/bin/java" 2>/dev/null || true
+
+  patch_court_configs
+  ok "sudrfscraper установлен: $SUDRF_APP_DIR"
+
+  check_firefox
+}
+
+fix_geckodriver_macos() {
+  # В релизе под macOS лежит Linux-бинарник geckodriver (баг упаковки).
+  local driver="$SUDRF_APP_DIR/src/main/resources/macOS/geckodriver"
+  local asset="geckodriver-$GECKODRIVER_VERSION-macos.tar.gz"
+  note "Заменяю встроенный geckodriver на официальный ($GECKODRIVER_VERSION)…"
+  local tmp; tmp="$(mktemp -d)"
+  if curl -L --fail --silent --show-error -o "$tmp/gd.tgz" \
+      "https://github.com/mozilla/geckodriver/releases/download/$GECKODRIVER_VERSION/$asset" >>"$LOG_FILE" 2>&1 \
+      && tar xzf "$tmp/gd.tgz" -C "$tmp"; then
+    cp "$tmp/geckodriver" "$driver"
+    chmod +x "$driver"
+    xattr -c "$driver" 2>/dev/null || true
+    ok "geckodriver заменён на официальный"
+  else
+    warn "Не удалось скачать geckodriver — sudrf-скрапер на macOS не заработает."
+    note "Вручную: https://github.com/mozilla/geckodriver/releases → заменить src/main/resources/macOS/geckodriver"
+  fi
+  rm -rf "$tmp"
+}
+
+patch_court_configs() {
+  # Сайты судов перешли на https и сменили домены: X--reg.sudrf.ru → X.reg.sudrf.ru.
+  # Оставляем http:// (так обе ветки приложения получают корректный Host-заголовок).
+  # Подробности: NOTES.md п. 6.
+  local cfg_dir="$SUDRF_APP_DIR/src/main/resources/config"
+  [ -d "$cfg_dir" ] || return 0
+  if command -v python3 >/dev/null 2>&1 && python3 -c 'import json' >/dev/null 2>&1; then
+    python3 - "$cfg_dir" <<'PYEOF' >>"$LOG_FILE" 2>&1 || warn "Не удалось пропатчить конфиги судов (python3)."
+import json, sys, pathlib
+cfg_dir = pathlib.Path(sys.argv[1])
+for path in cfg_dir.glob("config_*.json"):
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        continue
+    if not isinstance(data, list):
+        continue
+    changed = 0
+    for court in data:
+        value = court.get("searchString")
+        if not value or "sudrf.ru" not in value:
+            continue
+        host = value.split("://", 1)[-1]
+        new_host = host.replace("--", ".")
+        new_value = "http://" + new_host
+        if new_value != value:
+            court["searchString"] = new_value
+            changed += 1
+    if changed:
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+PYEOF
+    ok "Конфиги судов пропатчены (канонические домены)"
+  else
+    warn "python3 недоступен — патч конфигов судов пропущен (sudrf может не собирать данные)."
+  fi
+}
+
+check_firefox() {
+  if [ "$OS" = "macos" ]; then
+    if [ -x "/Applications/Firefox.app/Contents/MacOS/firefox" ] || command -v firefox >/dev/null 2>&1; then
+      ok "Firefox найден"
+      return
+    fi
+  elif command -v firefox >/dev/null 2>&1 || command -v firefox-esr >/dev/null 2>&1; then
+    ok "Firefox найден"
+    return
+  fi
+  warn "Firefox не найден — сбор судебной практики (sudrf) работать не будет."
+  if [ "$OS" = "macos" ]; then
+    note "Установи Firefox: https://www.mozilla.org/firefox/new/ (или: npx playwright install firefox)"
+  else
+    note "Установи Firefox: sudo apt install -y firefox (или: npx playwright install firefox)"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Шаг 7. Рабочая папка knowledge_base
+# ---------------------------------------------------------------------------
+create_knowledge_base() {
+  mkdir -p "$KNOWLEDGE_BASE/court_practice" "$KNOWLEDGE_BASE/consultant" \
+           "$KNOWLEDGE_BASE/templates" "$KNOWLEDGE_BASE/output"
+  ok "Рабочая папка: $KNOWLEDGE_BASE (court_practice, consultant, templates, output)"
+}
+
+# ---------------------------------------------------------------------------
+# Итоговый чек-лист
+# ---------------------------------------------------------------------------
+summary() {
+  printf '\n%s%s Установка завершена!%s\n' "$BOLD" "$GREEN" "$NC"
+  printf '\n%sЧто установлено:%s\n' "$BOLD" "$NC"
+  printf '  ✓ OpenCode:      %s\n' "$(command -v opencode 2>/dev/null || echo "$HOME/.opencode/bin/opencode")"
+  printf '  ✓ uv:            %s\n' "$(command -v uv 2>/dev/null || echo '~/.local/bin/uv')"
+  printf '  ✓ Конфиг:        %s\n' "$OPENCODE_CONFIG_FILE"
+  printf '  ✓ Скилл:         %s\n' "$SKILLS_DIR/source-locked-ru/"
+  printf '  ✓ MCP-серверы:   ru-legal, pravo, kad, egrul%s, office-docs, sudrf-scraper\n' \
+    "$([ -n "$API_FNS_KEY" ] && echo '' || echo ' (выключен)')"
+  printf '  ✓ База знаний:   %s\n' "$KNOWLEDGE_BASE"
+
+  printf '\n%sЧто дальше:%s\n' "$BOLD" "$NC"
+  printf '  1. Проверь серверы:  opencode mcp list\n'
+  printf '  2. Запусти агента:   opencode\n'
+  printf '  3. Примеры запросов — в README.md; документы клади в %s\n' "$KNOWLEDGE_BASE"
+
+  if [ "$DEEPSEEK_KEY" = "ВАШ_КЛЮЧ_DEEPSEEK" ]; then
+    printf '\n  %s!%s Ключ DeepSeek не введён: вставь его в %s (замени ВАШ_КЛЮЧ_DEEPSEEK)\n' \
+      "$YELLOW" "$NC" "$OPENCODE_CONFIG_FILE"
+  fi
+  if ! command -v firefox >/dev/null 2>&1 && [ ! -x "/Applications/Firefox.app/Contents/MacOS/firefox" ]; then
+    printf '  %s!%s Firefox не найден — sudrf-практика не соберётся, пока не установишь Firefox\n' "$YELLOW" "$NC"
+  fi
+  printf '  %s!%s Сбор судебной практики требует российского IP и ввода капчи в браузере (http://localhost:8080)\n' \
+    "$YELLOW" "$NC"
+
+  printf '\nПолный лог: %s\n\n' "$LOG_FILE"
+}
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+main() {
+  : > "$LOG_FILE"
+  printf '%sLegal Agent Installer %s%s — разворачиваю агента-юриста.\n' "$BOLD" "$VERSION" "$NC"
+  log "Legal Agent Installer $VERSION — старт"
+
+  step 1 "Проверка системы"
+  detect_os
+  require_resources
+  check_network
+  check_system_tools
+  install_uv
+  install_opencode
+
+  step 2 "Ключи доступа (DeepSeek, опционально api-fns)"
+  ask_keys
+
+  step 3 "Конфигурация OpenCode"
+  write_config
+
+  step 4 "Скилл source-locked-ru"
+  install_skill
+
+  step 5 "MCP-серверы (законы, практика, документы, контрагенты)"
+  clone_ru_legal
+  copy_sudrf_mcp
+  check_mcp_servers
+
+  step 6 "sudrfscraper (судебная практика судов общей юрисдикции)"
+  install_sudrfscraper
+
+  step 7 "Рабочая папка ~/knowledge_base"
+  create_knowledge_base
+
+  summary
+  log "Готово"
+}
+
+main "$@"
