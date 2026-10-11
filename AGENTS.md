@@ -1,5 +1,12 @@
 # AGENTS.md — Legal Agent Installer
 
+## Обязательное чтение перед работой
+
+Перед началом работы прочитай `docs/user-scenario.md`, `docs/routine-problem.md`,
+`docs/acceptance-criteria.md`. Критерии приёмки (`docs/acceptance-criteria.md`) —
+это чек-лист: перед финальным тестом агент обязан сам проверить каждый пункт
+и заполнить отчёт по форме из раздела J.
+
 ## Роль агента
 
 Ты — разработчик установщика для юридического AI-агента на базе OpenCode.
@@ -50,9 +57,11 @@
 ## Правила работы с DeepSeek API Key
 
 1. Спросить у пользователя: `read -s -p "Вставьте DeepSeek API Key: " DEEPSEEK_KEY`
+   При установке через `curl | bash` читать ключ с терминала: `read -s -p "..." DEEPSEEK_KEY < /dev/tty`
+   (иначе `read` прочитает сам скрипт из stdin).
 2. **Не эхоить** ключ в терминал (флаг `-s`)
 3. Записать в `opencode.jsonc` через `sed` (не через `echo >>`)
-4. Никогда не логировать ключ
+4. Никогда не логировать ключ (в т.ч. не дублировать строку с ключом в `install.log`)
 5. Если пользователь не ввёл ключ — предложить два варианта:
    - Ввести сейчас
    - Пропустить и ввести позже через `opencode /connect` (но тогда MCP не заработают)
@@ -70,8 +79,13 @@
 legal-agent-installer/
 ├── AGENTS.md                    # этот файл
 ├── plan.md                      # план разработки
-├── install.sh                   # главный bash-скрипт
+├── docs/                        # обязательное чтение перед работой
+│   ├── user-scenario.md         # пользовательский сценарий
+│   ├── routine-problem.md       # какую рутину автоматизируем
+│   └── acceptance-criteria.md   # чек-лист приёмки (раздел J — форма отчёта)
+├── install.sh                   # главный bash-скрипт (лог — install.log)
 ├── install.ps1                  # PowerShell-обёртка для Windows (запускает install.sh в WSL)
+├── uninstall.sh                 # удаление всех следов (критерий G4)
 ├── sudrf-scraper-mcp/
 │   ├── pyproject.toml
 │   ├── README.md
@@ -90,10 +104,17 @@ legal-agent-installer/
 
 ## Критерии готовности (Definition of Done)
 
+Полный чек-лист — `docs/acceptance-criteria.md` (разделы A–I, отчёт по форме J).
+
 - [ ] `install.sh` запускается на чистой macOS-машине без ошибок
 - [ ] `install.sh` запускается на чистом Ubuntu в WSL без ошибок
-- [ ] Ключ DeepSeek корректно прописывается в `opencode.jsonc`
-- [ ] `opencode` после установки видит все три MCP-сервера
+- [ ] Ключ DeepSeek корректно прописывается в `opencode.jsonc` (и не попадает в логи)
+- [ ] `opencode mcp list` после установки видит все MCP:
+      `ru-legal`, `pravo`, `kad`, `office-docs`, `sudrf-scraper`
+- [ ] Скилл `source-locked-ru` установлен в `~/.config/opencode/skills/`
 - [ ] Агент может прочитать `.docx` файл из `~/knowledge_base/`
-- [ ] Агент может вызвать `run_sudrf_scrape` и получить JSON
+- [ ] Агент может заполнить шаблон `.docx` и не оставить `{{...}}`
+- [ ] Агент не выдумывает нормы: нет источника — `[НЕ НАЙДЕНО]`
+- [ ] Агент может вызвать `run_sudrf_scrape` и получить JSON (блокер апстрима — NOTES.md п. 7)
 - [ ] README понятен человеку без технического бэкграунда
+- [ ] `uninstall.sh` удаляет все следы

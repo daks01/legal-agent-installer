@@ -88,32 +88,37 @@
 ## Этап 3. Главный установщик `install.sh` — MVP (4-5 часов)
 
 **Задачи**:
-1. Шапка скрипта: `set -euo pipefail`, цветной вывод, функции `log_info/log_error`
+1. Шапка скрипта: `set -euo pipefail`, цветной вывод, функции `log_info/log_error`;
+   весь вывод дублировать в `install.log` (критерий A4), исключая ключ DeepSeek
 2. **Шаг 1**: Определение ОС (`uname -s`)
 3. **Шаг 2**: Проверка зависимостей:
    - `command -v curl`, `command -v git`
    - Node.js (>= 20): если нет — установить через `nvm` или `brew`
    - Python 3.11+: если нет — установить через `brew`/`apt`
    - `uv`: если нет — `curl -LsSf https://astral.sh/uv/install.sh | sh`
+   - убедиться, что `~/.local/bin` (uvx/opencode) в PATH окружения пользователя
 4. **Шаг 3**: Запрос DeepSeek API Key:
    ```bash
-   read -s -p "Вставьте DeepSeek API Key: " DEEPSEEK_KEY
+   read -s -p "Вставьте DeepSeek API Key: " DEEPSEEK_KEY < /dev/tty
    ```
+   (`< /dev/tty` обязателен для запуска через `curl | bash` — критерий A1/A2)
 5. **Шаг 4**: Установка OpenCode:
    ```bash
    curl -fsSL https://opencode.ai/install | bash
    ```
 6. **Шаг 5**: Запись `opencode.jsonc`:
    - Скопировать `templates/opencode.jsonc.template` в `~/.config/opencode/`
-   - Заменить `{{DEEPSEEK_KEY}}` на `$DEEPSEEK_KEY`
+   - Заменить `{{DEEPSEEK_KEY}}` и `{{LEGAL_AGENT_HOME}}` ($HOME/.local/share/legal-agent)
    - Если файл уже есть — сделать `.bak`
 7. **Шаг 6**: Установка скилла `source-locked-ru`:
    - Скопировать `skills/source-locked-ru/` в `~/.config/opencode/skills/`
 8. **Шаг 7**: Установка MCP-серверов:
    - `git clone --depth 1 https://github.com/AlsKozlov/ru-legal.git ~/.local/share/legal-agent/ru-legal` (обновление — `git -C ... pull`)
    - `uvx --from ~/.local/share/legal-agent/ru-legal/mcps/ru-legal-aggregator ru-legal-mcp` (проверка, с `RU_LEGAL_PACKS_ROOT`)
+   - `uvx --from ~/.local/share/legal-agent/ru-legal/mcps/pravo pravo-mcp` (проверка) — законы РФ
+   - `uvx --from ~/.local/share/legal-agent/ru-legal/mcps/kad kad-mcp` (проверка) — арбитраж
    - `uvx office-docs-mcp --help` (проверка)
-   - `uv tool install sudrf-scraper-mcp` (наш кастомный)
+   - Скопировать наш `sudrf-scraper-mcp/` в `~/.local/share/legal-agent/sudrf-scraper-mcp` (проверка `uvx --from ...`)
 9. **Шаг 8**: Установка `sudrfscraper` (см. NOTES.md — это не JAR, а zip-релиз):
    - Скачать последний релиз (x64) с GitHub Releases и распаковать в `~/.local/share/legal-agent/sudrfscraper/`
    - macOS: заменить битый geckodriver (в релизе — Linux-бинарник) на официальный
@@ -166,8 +171,13 @@
    - Как использовать (примеры промптов)
    - Что делать, если что-то сломалось (FAQ)
 3. Написать `CONTRIBUTING.md` для разработчиков (как добавить новый MCP)
+4. Написать `uninstall.sh` (критерий G4) — удаляет артефакты установки
+   (`~/.config/opencode/*`, `~/.local/share/legal-agent/`), с подтверждением,
+   не трогая чужие файлы
+5. **Перед финальным тестированием — прогнать `docs/acceptance-criteria.md`**
+   на чистой машине и заполнить отчёт по форме из раздела J
 
-**Артефакт**: тесты + документация.
+**Артефакт**: тесты + документация + отчёт о приёмке.
 
 ---
 
@@ -188,10 +198,12 @@
 - ❌ Нативный Windows без WSL
 - ❌ GUI для установщика
 - ❌ Автоматическое решение капчи (DeepSeek vision + fallback)
-- ❌ Telegram-бот для удалённого доступа
+- ❌ Telegram-бот для удалённого доступа (критерии F — опциональные)
 - ❌ Локальный RAG (LanceDB + RusLawOD)
 - ❌ Интеграция с КонсультантПлюс (только ручной экспорт)
-- ❌ Поддержка `court-case-monitor` для kad.arbitr (есть `ru-legal-mcp`)
+- ❌ `validate_citation` / `check_currency` — таких инструментов в ru-legal нет
+  (проверено); при необходимости — своя тонкая обёртка (см. NOTES.md)
+- ❌ Блокер sudrf (сохранение результатов) — NOTES.md п. 7, решение отложено
 
 ---
 
@@ -201,6 +213,8 @@
 2. После каждого этапа — **коммит в git** с сообщением `feat: этап N — <что сделано>`.
 3. Если на этапе возникает блокер (например, `sudrfscraper` не запускается) — **не переходить к следующему**, а написать в `NOTES.md` проблему и предложить решение.
 4. Финальный тест — на **чистой машине** (не той, где шла разработка).
+5. **Перед финальным тестированием — прогнать `docs/acceptance-criteria.md`**
+   и заполнить отчёт по форме раздела J. Критерий без отметки = пункт провален.
 
 ## Метрики успеха
 
@@ -208,5 +222,5 @@
 - Пользователь **не вводит ни одной команды**, кроме `curl ... | bash` и API Key
 - После установки агент **сразу** может:
   - Прочитать `.docx` из `~/knowledge_base/`
-  - Найти статью ГК РФ через `ru-legal-mcp`
+  - Найти статью ГК РФ через `pravo-mcp` / `ru-legal-mcp`
   - Запустить `run_sudrf_scrape` и получить JSON

@@ -22,6 +22,16 @@
       },
       "enabled": true
     },
+    "pravo": {
+      "type": "local",
+      "command": ["uvx", "--from", "{{LEGAL_AGENT_HOME}}/ru-legal/mcps/pravo", "pravo-mcp"],
+      "enabled": true
+    },
+    "kad": {
+      "type": "local",
+      "command": ["uvx", "--from", "{{LEGAL_AGENT_HOME}}/ru-legal/mcps/kad", "kad-mcp"],
+      "enabled": true
+    },
     "office-docs": {
       "type": "local",
       "command": ["uvx", "office-docs-mcp", "serve"],
