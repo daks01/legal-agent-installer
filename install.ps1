@@ -8,13 +8,24 @@
   окружения $env:DEEPSEEK_KEY (WSLENV) — в командную строку ключ не попадает.
   Если ключ не передан, install.sh спросит его интерактивно внутри WSL.
 
+.PARAMETER Doctor
+  Только диагностика: версия Windows, виртуализация, WSL, дистрибутивы.
+  Ничего не устанавливает — удобно для инвентаризации парка машин.
+
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File install.ps1
+
+.EXAMPLE
+  powershell -ExecutionPolicy Bypass -File install.ps1 -Doctor
 
 .EXAMPLE
   $env:DEEPSEEK_KEY = "sk-..."   # необязательно, ключ не попадёт в argv
   powershell -ExecutionPolicy Bypass -File install.ps1
 #>
+
+param(
+  [switch]$Doctor
+)
 
 $ErrorActionPreference = "Stop"
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
@@ -39,34 +50,82 @@ if (-not $isWindowsOs) {
 Write-Ok "Windows определён"
 
 # ---------------------------------------------------------------------------
+# 1b. Версия Windows (WSL2 есть только на Windows 10 1903+ / Windows 11)
+# ---------------------------------------------------------------------------
+$osVersion = [System.Environment]::OSVersion.Version
+$osBuild = $osVersion.Build
+$winName = "Windows $($osVersion.Major).$($osVersion.Minor) (сборка $osBuild)"
+
+$isWin11 = ($osVersion.Major -eq 10 -and $osBuild -ge 22000)
+$isWin10 = ($osVersion.Major -eq 10 -and $osBuild -lt 22000)
+$wslInstallAvailable = ($isWin11 -or ($isWin10 -and $osBuild -ge 19041))
+
+# Версия виртуализации (для WSL2 нужна VT-x/AMD-V, часто выключена на старых ПК)
+$hypervisorPresent = $null
+$vtFirmware = $null
+try { $hypervisorPresent = (Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).HypervisorPresent } catch {}
+try { $vtFirmware = (Get-CimInstance Win32_Processor -ErrorAction Stop | Select-Object -First 1).VirtualizationFirmwareEnabled } catch {}
+
+$wslCmd = Get-Command wsl.exe -ErrorAction SilentlyContinue
+$env:WSL_UTF8 = "1"
+$distros = @()
+if ($wslCmd) {
+  $distros = @(wsl.exe -l -q 2>$null | Where-Object { $_ -and $_.Trim() -ne "" })
+}
+
+if ($Doctor) {
+  Write-Step "Диагностика (режим -Doctor, ничего не устанавливается)"
+  Write-Host "  ОС:              $winName"
+  Write-Host "  Поддержка WSL2:  $(if ($wslInstallAvailable) { 'да' } elseif ($isWin10) { 'нужна ручная установка WSL (сборка < 19041)' } else { 'НЕТ (Windows 7/8/8.1 не поддерживаются)' })"
+  Write-Host "  Виртуализация:   Present=$hypervisorPresent, VT/AMD-V в BIOS=$vtFirmware$(if ($vtFirmware -eq $false) { '  ← включите в BIOS!' })"
+  Write-Host "  wsl.exe:         $(if ($wslCmd) { 'есть' } else { 'нет' })"
+  Write-Host "  Дистрибутивы:    $(if ($distros.Count -gt 0) { $distros -join ', ' } else { 'нет' })"
+  if ($wslCmd) {
+    Write-Host "  Статус WSL:"
+    wsl.exe --status 2>$null | ForEach-Object { Write-Host "    $_" }
+  }
+  Write-Host ""
+  Write-Host "  Дальше: install.ps1 (установка), если ОС поддерживается." -ForegroundColor Cyan
+  exit 0
+}
+
+if ($osVersion.Major -lt 10) {
+  Fail "$winName не поддерживается." "WSL2 существует только на Windows 10/11. Варианты: обновить ОС; либо поставить агента на одной машине с Windows 10/11 и работать с неё. Установка остановлена."
+}
+if ($isWin10 -and $osBuild -lt 18362) {
+  Fail "Слишком старая сборка Windows 10 ($osBuild)." "Нужна сборка 1903+ (рекомендуется 22H2: Параметры → Обновление и безопасность)."
+}
+Write-Ok "ОС подходит: $winName"
+
+# ---------------------------------------------------------------------------
 # 2. WSL2 установлен?
 # ---------------------------------------------------------------------------
 Write-Step "Проверяю WSL2"
 
-$wslCmd = Get-Command wsl.exe -ErrorAction SilentlyContinue
 if (-not $wslCmd) {
   Write-Warn "WSL не найден."
+  if (-not $wslInstallAvailable) {
+    # Windows 10 1903–2004: команды wsl --install нет, включение — вручную
+    Write-Host "  На этой сборке Windows команда 'wsl --install' недоступна."
+    Write-Host "  Включите WSL вручную (PowerShell от администратора):"
+    Write-Host "    1. dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart"
+    Write-Host "    2. dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart"
+    Write-Host "    3. Перезагрузите компьютер"
+    Write-Host "    4. wsl --set-default-version 2"
+    Write-Host "    5. Установите Ubuntu из Microsoft Store"
+    Write-Host "`n  Затем повторите: install.ps1" -ForegroundColor Yellow
+    exit 1
+  }
   Write-Host "  WSL2 ставится одной командой (потребуются права администратора и перезагрузка)."
   $answer = Read-Host "  Установить WSL2 сейчас? [y/N]"
   if ($answer -match "^(y|Y|д|Д)") {
     Write-Host "  Запускаю: wsl --install"
-    wsl.exe --install 2>$null
-    if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne $null) {
-      Write-Warn "Не удалось запустить автоматически (нужны права администратора)."
-    }
+    try { wsl.exe --install 2>$null } catch { Write-Warn "Не удалось запустить автоматически." }
     Write-Host "`n  После установки/перезагрузки откройте PowerShell и повторите: install.ps1" -ForegroundColor Yellow
     exit 0
   } else {
     Fail "WSL2 не установлен." "Откройте PowerShell от администратора и выполните: wsl --install, затем перезагрузите ПК."
   }
-}
-
-# WSL_UTF8 заставляет wsl.exe выводить текст в UTF-8 (иначе PS 5.1 ломает кириллицу/UTF-16)
-$env:WSL_UTF8 = "1"
-try {
-  wsl.exe --status *> $null
-} catch {
-  # старые сборки без --status: не критично, проверим список дистрибутивов
 }
 
 $distros = @(wsl.exe -l -q 2>$null | Where-Object { $_ -and $_.Trim() -ne "" })
