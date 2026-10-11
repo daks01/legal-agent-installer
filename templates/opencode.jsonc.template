@@ -1,0 +1,33 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "deepseek/DeepSeek-V4-Flash",
+  "provider": {
+    "deepseek": {
+      "options": {
+        "apiKey": "{{DEEPSEEK_KEY}}"
+      },
+      "models": {
+        "DeepSeek-V4-Flash": {
+          "id": "deepseek-chat"
+        }
+      }
+    }
+  },
+  "mcp": {
+    "ru-legal": {
+      "type": "local",
+      "command": ["uvx", "ru-legal-mcp"],
+      "enabled": true
+    },
+    "office-docs": {
+      "type": "local",
+      "command": ["uvx", "office-docs-mcp", "serve"],
+      "enabled": true
+    },
+    "sudrf-scraper": {
+      "type": "local",
+      "command": ["uvx", "sudrf-scraper-mcp"],
+      "enabled": true
+    }
+  }
+}
