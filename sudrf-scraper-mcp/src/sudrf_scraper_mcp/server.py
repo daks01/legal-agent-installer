@@ -688,6 +688,8 @@ def run_sudrf_scrape(
 
     results_root = Path(directory).expanduser()
     results_root.mkdir(parents=True, exist_ok=True)
+    # SUDRF Scraper склеивает путь как "<directory><project>/", поэтому слэш обязателен
+    results_root_value = str(results_root).rstrip("/") + "/"
 
     article_obj = _build_article(
         case_type,
@@ -704,7 +706,7 @@ def run_sudrf_scrape(
     payload = {
         "article": article_obj,
         "meta": {
-            "chosenDirectory": str(results_root),
+            "chosenDirectory": results_root_value,
             "regions": _normalize_regions(regions),
             "levels": [level.upper() for level in levels_norm],
             "name": project_name,
@@ -792,9 +794,7 @@ def get_sudrf_status(
         status["output_file"] = str(json_file)
         if json_file.exists():
             status["records_collected"] = _count_jsonl_lines(json_file)
-        finished = (results_dir / f"{project_name}_summary.txt").exists() or (
-            results_dir / f"{project_name}_meta.json"
-        ).exists()
+        finished = (results_dir / f"{project_name}_summary.txt").exists()
         has_files = results_dir.exists() and any(results_dir.iterdir())
         status["finished"] = finished
         status["in_progress"] = bool(has_files and not finished)
@@ -841,9 +841,7 @@ def get_sudrf_results(
             except json.JSONDecodeError:
                 logger.warning("Skipping malformed JSON line in %s", json_file)
 
-    finished = (results_dir / f"{project_name}_summary.txt").exists() or (
-        results_dir / f"{project_name}_meta.json"
-    ).exists()
+    finished = (results_dir / f"{project_name}_summary.txt").exists()
     page = records[offset : offset + limit]
     return {
         "status": "ok",

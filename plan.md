@@ -117,6 +117,7 @@
 9. **Шаг 8**: Установка `sudrfscraper` (см. NOTES.md — это не JAR, а zip-релиз):
    - Скачать последний релиз (x64) с GitHub Releases и распаковать в `~/.local/share/legal-agent/sudrfscraper/`
    - macOS: заменить битый geckodriver (в релизе — Linux-бинарник) на официальный
+   - Патч конфига судов: канонические домены (`--` → `.`), но оставить `http://` (NOTES.md п. 6)
    - Снять карантин macOS (`xattr -dr com.apple.quarantine`), выставить +x на `run.sh`, JRE, geckodriver
    - Firefox: системный, иначе предложить `npx playwright install firefox` (MCP подхватит)
 10. **Шаг 9**: Создать `~/knowledge_base/` с подпапками:
