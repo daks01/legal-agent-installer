@@ -306,3 +306,14 @@ NOTES.md «Этап 4b»); живой тест на Win7/Win10 — при тес
   - Прочитать `.docx` из `~/knowledge_base/`
   - Найти статью ГК РФ через `pravo-mcp` / `ru-legal-mcp`
   - Запустить `run_sudrf_scrape` и получить JSON
+
+---
+
+## Этап 8. GUI (OpenCode Desktop) — выполнен, релиз v0.1.1
+
+Установка десктоп-приложения (GUI) добавлена в `install.sh` и
+`setup-windows.ps1` (флаги `--no-desktop` / `-NoDesktop`), документация
+обновлена, выпущен релиз v0.1.1. Детали — NOTES.md «Этап 8».
+Ограничение: desktop собирается на Electron 44 → Windows 10 1809+, не для Win7;
+для Win7 остаётся сценарий «тонкий клиент» через `opencode web` (добавить в
+инструкцию при след. итерации).

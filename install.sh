@@ -11,7 +11,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Константы
 # ---------------------------------------------------------------------------
-VERSION="0.1.0"
+VERSION="0.1.1"
 LEGAL_AGENT_HOME="${LEGAL_AGENT_HOME:-$HOME/.local/share/legal-agent}"
 OPENCODE_CONFIG_DIR="$HOME/.config/opencode"
 OPENCODE_CONFIG_FILE="$OPENCODE_CONFIG_DIR/opencode.jsonc"
@@ -34,6 +34,7 @@ RELEASE_BASE_URL="${RELEASE_BASE_URL:-https://github.com/daks01/legal-agent-inst
 # Источник базы законов для тестов/офлайн-установки: путь к laws.db.gz (или URL).
 LAWS_DB_SRC="${LAWS_DB_SRC:-}"
 WITH_PUBLICATIONS="${WITH_PUBLICATIONS:-0}"
+INSTALL_DESKTOP="${INSTALL_DESKTOP:-1}"
 
 # Тестовый/неинтерактивный режим: ключи можно передать через переменные окружения
 DEEPSEEK_KEY="${DEEPSEEK_KEY:-}"
@@ -180,6 +181,79 @@ install_opencode() {
   command -v opencode >/dev/null 2>&1 || fail "opencode установлен, но не найден в PATH." \
     "Добавь в ~/.zshrc: export PATH=\"\$HOME/.opencode/bin:\$PATH\" и перезапусти терминал."
   ok "opencode установлен: $(opencode --version 2>/dev/null || echo 'есть')"
+}
+
+# ---------------------------------------------------------------------------
+# Шаг 1b. OpenCode Desktop (GUI-приложение)
+# ---------------------------------------------------------------------------
+DESKTOP_URL_BASE="https://github.com/anomalyco/opencode/releases/latest/download"
+
+install_desktop() {
+  if [ "$INSTALL_DESKTOP" != "1" ]; then
+    note "Пропускаю десктоп-приложение (--no-desktop)"
+    return
+  fi
+  local asset
+  if [ "$OS" = "macos" ]; then
+    if [ "$(uname -m)" = "arm64" ]; then asset="opencode-desktop-mac-arm64.zip"; else asset="opencode-desktop-mac-x64.zip"; fi
+    local app_dir="${MACOS_APP_DIR:-/Applications}"
+    if [ -d "$app_dir/OpenCode.app" ]; then
+      ok "OpenCode Desktop уже установлен: $app_dir/OpenCode.app"
+      return
+    fi
+    if [ ! -w "$app_dir" ]; then
+      app_dir="$HOME/Applications"
+      mkdir -p "$app_dir"
+      note "Нет доступа на запись в /Applications — ставлю в ~/Applications"
+    fi
+    note "Скачиваю OpenCode Desktop (~140 МБ)…"
+    local tmp; tmp="$(mktemp -d)"
+    if curl -L --fail --silent --show-error -o "$tmp/app.zip" "$DESKTOP_URL_BASE/$asset" >>"$LOG_FILE" 2>&1 \
+       && unzip -q "$tmp/app.zip" -d "$tmp"; then
+      local app; app="$(find "$tmp" -maxdepth 2 -name "*.app" -type d | head -1)"
+      if [ -n "$app" ]; then
+        rm -rf "$app_dir/$(basename "$app")"
+        cp -R "$app" "$app_dir/"
+        xattr -dr com.apple.quarantine "$app_dir/$(basename "$app")" 2>/dev/null || true
+        ok "OpenCode Desktop установлен: $app_dir/$(basename "$app")"
+      else
+        warn "В архиве desktop-приложения нет .app — пропускаю"
+      fi
+    else
+      warn "Не удалось скачать desktop-приложение (агент в терминале всё равно работает)"
+    fi
+    rm -rf "$tmp"
+  elif [ "$OS" = "linux" ]; then
+    if [ "$(uname -m)" = "aarch64" ] || [ "$(uname -m)" = "arm64" ]; then
+      asset="opencode-desktop-linux-arm64.AppImage"
+    else
+      asset="opencode-desktop-linux-x86_64.AppImage"
+    fi
+    local dir="$LEGAL_AGENT_HOME/opencode-desktop"
+    local appimg="$dir/OpenCode.AppImage"
+    if [ -f "$appimg" ]; then
+      ok "OpenCode Desktop уже установлен: $appimg"
+      return
+    fi
+    mkdir -p "$dir"
+    note "Скачиваю OpenCode Desktop (~150 МБ)…"
+    if curl -L --fail --silent --show-error -o "$appimg" "$DESKTOP_URL_BASE/$asset" >>"$LOG_FILE" 2>&1; then
+      chmod +x "$appimg"
+      mkdir -p "$HOME/.local/share/applications"
+      cat > "$HOME/.local/share/applications/opencode-desktop.desktop" <<DESKTOP_EOF
+[Desktop Entry]
+Name=OpenCode
+Comment=AI-агент юриста (OpenCode Desktop)
+Exec=$appimg
+Terminal=false
+Type=Application
+Categories=Utility;Office;
+DESKTOP_EOF
+      ok "OpenCode Desktop установлен (AppImage + ярлык в меню приложений)"
+    else
+      warn "Не удалось скачать desktop-приложение (агент в терминале всё равно работает)"
+    fi
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -531,6 +605,9 @@ summary() {
   printf '\n%s%s Установка завершена!%s\n' "$BOLD" "$GREEN" "$NC"
   printf '\n%sЧто установлено:%s\n' "$BOLD" "$NC"
   printf '  ✓ OpenCode:      %s\n' "$(command -v opencode 2>/dev/null || echo "$HOME/.opencode/bin/opencode")"
+  if [ "$INSTALL_DESKTOP" = "1" ]; then
+    printf '  ✓ OpenCode GUI:  %s\n' "$([ -d "/Applications/OpenCode.app" ] && echo '/Applications/OpenCode.app' || { [ -d "$HOME/Applications/OpenCode.app" ] && echo "$HOME/Applications/OpenCode.app"; } || echo "AppImage: $LEGAL_AGENT_HOME/opencode-desktop/OpenCode.AppImage")"
+  fi
   printf '  ✓ uv:            %s\n' "$(command -v uv 2>/dev/null || echo '~/.local/bin/uv')"
   printf '  ✓ Конфиг:        %s\n' "$OPENCODE_CONFIG_FILE"
   printf '  ✓ Скилл:         %s\n' "$SKILLS_DIR/source-locked-ru/"
@@ -566,9 +643,11 @@ main() {
   for arg in "$@"; do
     case "$arg" in
       --with-publications) WITH_PUBLICATIONS=1 ;;
+      --no-desktop) INSTALL_DESKTOP=0 ;;
       --help|-h)
         printf 'Использование: bash install.sh [--with-publications]\n'
         printf '  --with-publications — дополнительно скачать базу публикаций pravo.gov.ru (~160 МБ)\n'
+        printf '  --no-desktop        — не ставить десктоп-приложение (GUI)\n'
         exit 0
         ;;
     esac
@@ -601,6 +680,7 @@ main() {
   check_system_tools
   install_uv
   install_opencode
+  install_desktop
 
   step 2 "Ключи доступа (DeepSeek, опционально api-fns)"
   ask_keys

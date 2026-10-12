@@ -18,6 +18,7 @@
 
 param(
   [switch]$WithPublications,
+  [switch]$NoDesktop,
   [switch]$Force,
   [string]$ReleaseBaseUrl = "https://github.com/daks01/legal-agent-installer/releases/latest/download",
   [string]$RepoArchiveUrl = "https://github.com/daks01/legal-agent-installer/archive/refs/heads/main.zip",
@@ -85,6 +86,32 @@ if (Get-Command uv -ErrorAction SilentlyContinue) {
   Write-Ok "uv установлен: $(uv --version)"
 }
 $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
+
+# --- 2b. OpenCode Desktop (GUI) --------------------------------------------
+function Install-Desktop {
+  if ($NoDesktop) { Write-Warn "Пропускаю desktop-приложение (-NoDesktop)"; return }
+  $installed = Test-Path (Join-Path $env:LOCALAPPDATA "Programs\opencode-desktop")
+  if ($installed) { Write-Ok "OpenCode Desktop уже установлен"; return }
+  if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") {
+    $asset = "opencode-desktop-win-arm64.exe"
+  } else {
+    $asset = "opencode-desktop-win-x64.exe"
+  }
+  Write-Host "  Скачиваю OpenCode Desktop (~120 МБ)…"
+  $exe = Join-Path $env:TEMP "opencode-desktop-setup.exe"
+  Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/anomalyco/opencode/releases/latest/download/$asset" -OutFile $exe
+  Write-Host "  Устанавливаю (без окна)…"
+  Start-Process -Wait -FilePath $exe -ArgumentList "/S"
+  Remove-Item -Force $exe -ErrorAction SilentlyContinue
+  if (Test-Path (Join-Path $env:LOCALAPPDATA "Programs\opencode-desktop")) {
+    Write-Ok "OpenCode Desktop установлен — появится в меню Пуск (OpenCode)"
+  } else {
+    Write-Warn "Desktop-приложение установилось нестандартно — проверьте меню Пуск"
+  }
+}
+
+# --- 2c. Установить desktop ---
+Install-Desktop
 
 # --- 3. Пути ---------------------------------------------------------------
 $LegalHome = Join-Path $env:USERPROFILE ".local\share\legal-agent"
@@ -235,6 +262,7 @@ Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 # --- Итог -------------------------------------------------------------------
 Write-Host "`n=== Готово! ===" -ForegroundColor Green
 Write-Host "  Конфиг:    $configFile"
+Write-Host "  GUI:       Пуск — OpenCode (desktop)"
 Write-Host "  Скиллы:    $SkillsDir"
 Write-Host "  База законов: $lawsDb"
 Write-Host "  Документы: $KnowledgeBase"

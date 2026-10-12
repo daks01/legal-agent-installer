@@ -538,3 +538,24 @@ Windows-машина; отметить при тесте на чистой ма�
   setup-environment); `uninstall.sh` удаляет оба.
 - Для Win10 enterprise-сценария остаётся `install.ps1` (через WSL2); для
   большинства Win10-машин теперь достаточно нативного `setup-windows.ps1`.
+
+---
+
+## Этап 8 — OpenCode Desktop (GUI) и релиз v0.1.1 (2026-10-12)
+
+- В `install.sh` добавлена установка **OpenCode Desktop**: macOS — zip с
+  GitHub Release (arm64/x64) → `OpenCode.app` в `/Applications` (или
+  `~/Applications`, если нет прав); Linux — AppImage в
+  `~/.local/share/legal-agent/opencode-desktop/` + ярлык в меню; флаг
+  `--no-desktop` для пропуска. Идемпотентно.
+- В `setup-windows.ps1` — тихая установка `opencode-desktop-win-*.exe` (`/S`),
+  флаг `-NoDesktop`. Итог: GUI ставится и на Windows, и на macOS, и на Linux.
+- Проверено на macOS (изолированный HOME): скачивание, распаковка,
+  копирование `.app`, снятие карантина, повторный запуск → «уже установлен»,
+  `--no-desktop` → пропуск. Синтаксис PS-скрипта — pwsh-парсер.
+- GUI использует тот же конфиг `~/.config/opencode` (те же MCP/ключи/скиллы) —
+  финальная проверка совместимости — на живом тесте пользователя (desktop сейчас
+  на ветке v2, поэтому помечено как «проверить при тестировании»).
+- Релиз **v0.1.1**: добавлен desktop в установщики и документацию; артефакты
+  данных (laws.db.gz и др.) перезалиты, чтобы `releases/latest` продолжал
+  отдавать базу (установщик качает `.../releases/latest/download/laws.db.gz`).

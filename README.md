@@ -20,6 +20,7 @@
 | Найти арбитражную практику | `kad` MCP (kad.arbitr.ru) |
 | Проверить контрагента (ЕГРЮЛ/ЕГРИП) | `egrul` MCP (api-fns.ru, бесплатный тариф) |
 | Работать «только по источникам» | скилл `source-locked-ru`: не выдумывает, пишет `[НЕ НАЙДЕНО]` |
+| Работать в привычном окне (GUI) | OpenCode Desktop — устанавливается автоматически (можно пропустить: `--no-desktop`) |
 | Готовые юридические сценарии (договоры, кадры, налоги…) | 145 скиллов `ru-legal` |
 
 Агент **не даёт юридических советов** и не принимает решений — он готовит черновик,
@@ -61,6 +62,9 @@ bash install.sh
 irm https://raw.githubusercontent.com/daks01/legal-agent-installer/main/setup-windows.ps1 -OutFile "$env:TEMP\setup-windows.ps1"
 powershell -ExecutionPolicy Bypass -File "$env:TEMP\setup-windows.ps1"
 ```
+
+Установщик также поставит **OpenCode Desktop** (GUI-приложение: меню Пуск →
+OpenCode). Не нужно — добавьте `-NoDesktop`.
 
 Подробно (включая установку самого opencode и вопрос про Windows 7) —
 `docs/windows-manual.md`. Enterprise-вариант через WSL2: `install.ps1` из
