@@ -28,7 +28,7 @@
 ## Требования
 
 - **macOS 12+** или **Linux (Ubuntu 22.04+, в т.ч. WSL2)**, либо
-  **Windows 10 (сборка 2004+)/Windows 11** с WSL2.
+  **Windows 10 (1809+)/Windows 11 — нативно** (без WSL) или через WSL2.
   ❌ **Windows 7/8 не поддерживается** (WSL2 там не существует): обновите ОС
   или поставьте агента на одну машину с Win10/11 и работайте с неё.
 - Интернет и **ключ DeepSeek** (получить: https://platform.deepseek.com/api_keys).
@@ -55,11 +55,16 @@ cd legal-agent-installer
 bash install.sh
 ```
 
-**Windows** (PowerShell, после `git clone` репозитория):
+**Windows 10/11 — нативно, без WSL** (одна команда PowerShell):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File install.ps1
+irm https://raw.githubusercontent.com/daks01/legal-agent-installer/main/setup-windows.ps1 -OutFile "$env:TEMP\setup-windows.ps1"
+powershell -ExecutionPolicy Bypass -File "$env:TEMP\setup-windows.ps1"
 ```
+
+Подробно (включая установку самого opencode и вопрос про Windows 7) —
+`docs/windows-manual.md`. Enterprise-вариант через WSL2: `install.ps1` из
+клонированного репозитория.
 
 Установщик спросит ключ DeepSeek (можно пропустить и вставить позже).
 Диагностика без установки: `install.ps1 -Doctor` (Windows) или

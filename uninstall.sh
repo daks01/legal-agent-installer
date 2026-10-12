@@ -22,6 +22,7 @@ LEGAL_AGENT_HOME="$HOME/.local/share/legal-agent"
 OPENCODE_CONFIG_DIR="$HOME/.config/opencode"
 OPENCODE_CONFIG_FILE="$OPENCODE_CONFIG_DIR/opencode.jsonc"
 SKILL_DIR="$OPENCODE_CONFIG_DIR/skills/source-locked-ru"
+SKILL_DIR_SETUP="$OPENCODE_CONFIG_DIR/skills/setup-environment"
 KNOWLEDGE_BASE="$HOME/knowledge_base"
 
 ASSUME_YES=0
@@ -93,14 +94,14 @@ else
   ok "Конфиг отсутствовал — пропускаю"
 fi
 
-# 3. Скилл
-if [ -d "$SKILL_DIR" ]; then
-  rm -rf "$SKILL_DIR"
-  rmdir "$SKILL_DIR/.." 2>/dev/null || true   # убрать skills/, если пуста
-  ok "Удалён скилл source-locked-ru"
-else
-  ok "Скилл отсутствовал — пропускаю"
-fi
+# 3. Скиллы
+for dir in "$SKILL_DIR" "$SKILL_DIR_SETUP"; do
+  if [ -d "$dir" ]; then
+    rm -rf "$dir"
+    ok "Удалён скилл $(basename "$dir")"
+  fi
+done
+rmdir "$OPENCODE_CONFIG_DIR/skills" 2>/dev/null || true   # убрать skills/, если пуста
 
 # 4. Каталог legal-agent (ru-legal, sudrfscraper, sudrf-scraper-mcp)
 if [ -d "$LEGAL_AGENT_HOME" ]; then

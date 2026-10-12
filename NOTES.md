@@ -514,3 +514,27 @@ Windows-машина; отметить при тесте на чистой ма�
 - **Осталось до полной приёмки**: прогон на реальных чистых машинах
   (macOS 14+ — A8; Ubuntu 22.04/WSL — A9; Windows 10/11 — A10; Win7 — A4b),
   отчёт по форме J (docs/acceptance-criteria.md), обратная связь 2-3 юристов.
+
+---
+
+## Самоподготовка окружения и Windows без WSL (2026-10-12)
+
+- **Скилл `skills/setup-environment/SKILL.md`** — агент сам настраивает окружение
+  по фразе «настрой окружение»: macOS/Linux — запускает `install.sh`; Windows —
+  `setup-windows.ps1`; объясняет необходимость перезапуска opencode; для Win7
+  даёт понятный отказ и варианты.
+- **`setup-windows.ps1`** — нативная установка для Windows 10 1809+/11 **без
+  WSL**: uv (официальный установщик), repo.zip с GitHub, копирование
+  `laws`/`sudrf-scraper-mcp`/скиллов, ru-legal (zip), запрос ключей
+  (`Read-Host -AsSecureString`), рендер конфига (+`.bak`), скачивание
+  `laws.db.gz` из релиза с проверкой SHA256, `~/knowledge_base`.
+  Идемпотентен; повторный запуск = обновление. Проверен парсером pwsh 7.6.6
+  (синтаксис), UTF-8 BOM; живой прогон — на машине с Win10/11.
+- **Почему Win7 не выйдет**: opencode — бинарник на Bun (Windows 10 **1809+**),
+  uv — тоже Win10+; WSL на Win7 не существует. Варианты в
+  `docs/windows-manual.md`: обновить ОС / агент на другой машине / `opencode web`
+  как тонкий клиент (экспериментально).
+- `install.sh` теперь копирует **все** скиллы из `skills/` (source-locked-ru +
+  setup-environment); `uninstall.sh` удаляет оба.
+- Для Win10 enterprise-сценария остаётся `install.ps1` (через WSL2); для
+  большинства Win10-машин теперь достаточно нативного `setup-windows.ps1`.

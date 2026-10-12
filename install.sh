@@ -263,9 +263,14 @@ write_config() {
 # ---------------------------------------------------------------------------
 install_skill() {
   mkdir -p "$SKILLS_DIR"
-  mkdir -p "$SKILLS_DIR/source-locked-ru"
-  cp "$SKILL_SRC/SKILL.md" "$SKILLS_DIR/source-locked-ru/SKILL.md"
-  ok "Скилл установлен: $SKILLS_DIR/source-locked-ru/SKILL.md"
+  local skill_dir
+  for skill_dir in "$SCRIPT_DIR"/skills/*/; do
+    [ -f "$skill_dir/SKILL.md" ] || continue
+    local name; name="$(basename "$skill_dir")"
+    mkdir -p "$SKILLS_DIR/$name"
+    cp "$skill_dir/SKILL.md" "$SKILLS_DIR/$name/SKILL.md"
+    ok "Скилл установлен: $name"
+  done
 }
 
 # ---------------------------------------------------------------------------
