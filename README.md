@@ -38,13 +38,24 @@
 
 ## Установка
 
+**Одна команда** (macOS, Linux, Windows через WSL):
+
 ```bash
-git clone <адрес-репозитория> legal-agent-installer
+curl -fsSL https://raw.githubusercontent.com/daks01/legal-agent-installer/main/install.sh | bash
+```
+
+Дополнительно: `... | bash -s -- --with-publications` — добавить базу официальных
+публикаций pravo.gov.ru (~160 МБ).
+
+Альтернатива — из клонированного репозитория:
+
+```bash
+git clone https://github.com/daks01/legal-agent-installer
 cd legal-agent-installer
 bash install.sh
 ```
 
-**Windows** (PowerShell):
+**Windows** (PowerShell, после `git clone` репозитория):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File install.ps1

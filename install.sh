@@ -17,7 +17,7 @@ OPENCODE_CONFIG_DIR="$HOME/.config/opencode"
 OPENCODE_CONFIG_FILE="$OPENCODE_CONFIG_DIR/opencode.jsonc"
 SKILLS_DIR="$OPENCODE_CONFIG_DIR/skills"
 KNOWLEDGE_BASE="$HOME/knowledge_base"
-LOG_FILE="$PWD/install.log"
+LOG_FILE="${INSTALL_LOG_DIR:-$PWD}/install.log"
 
 RU_LEGAL_REPO="https://github.com/AlsKozlov/ru-legal.git"
 RU_LEGAL_DIR="$LEGAL_AGENT_HOME/ru-legal"
@@ -30,7 +30,7 @@ GECKODRIVER_VERSION="v0.37.1"
 
 # Базовый URL релиза для скачивания артефактов (laws.db.gz и т.п.).
 # Заполняется на Этапе 6 (GitHub Release); можно переопределить окружением.
-RELEASE_BASE_URL="${RELEASE_BASE_URL:-}"
+RELEASE_BASE_URL="${RELEASE_BASE_URL:-https://github.com/daks01/legal-agent-installer/releases/latest/download}"
 # Источник базы законов для тестов/офлайн-установки: путь к laws.db.gz (или URL).
 LAWS_DB_SRC="${LAWS_DB_SRC:-}"
 WITH_PUBLICATIONS="${WITH_PUBLICATIONS:-0}"
@@ -44,6 +44,7 @@ FORCE="${FORCE:-0}"   # FORCE=1 — переустановить sudrfscraper з
 # Пути ресурсов (скрипт запускается из клонированного репозитория)
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+INSTALL_LOG_DIR="${INSTALL_LOG_DIR:-$PWD}"
 TEMPLATE_FILE="$SCRIPT_DIR/templates/opencode.jsonc.template"
 SKILL_SRC="$SCRIPT_DIR/skills/source-locked-ru"
 SUDRF_MCP_SRC="$SCRIPT_DIR/sudrf-scraper-mcp"
@@ -565,6 +566,22 @@ main() {
         ;;
     esac
   done
+
+  # Запуск через curl|bash (или из папки без файлов): скачиваем репозиторий и
+  # перезапускаемся из него.
+  if [ ! -f "$TEMPLATE_FILE" ]; then
+    note "Скачиваю файлы установщика с GitHub…"
+    local bootstrap_dir inner
+    bootstrap_dir="$(mktemp -d)"
+    if ! curl -fsSL "https://github.com/daks01/legal-agent-installer/archive/refs/heads/main.tar.gz" | tar xz -C "$bootstrap_dir"; then
+      fail "Не удалось скачать файлы установщика." \
+        "Проверь интернет или поставь вручную: git clone https://github.com/daks01/legal-agent-installer && cd legal-agent-installer && bash install.sh"
+    fi
+    inner="$(find "$bootstrap_dir" -maxdepth 1 -mindepth 1 -type d | head -1)"
+    [ -n "$inner" ] || fail "Архив установщика пуст."
+    cd "$inner"
+    exec env INSTALL_LOG_DIR="$INSTALL_LOG_DIR" bash install.sh "$@"
+  fi
 
   : > "$LOG_FILE"
   printf '%sLegal Agent Installer %s%s — разворачиваю агента-юриста.\n' "$BOLD" "$VERSION" "$NC"
