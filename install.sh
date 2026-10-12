@@ -186,13 +186,15 @@ install_opencode() {
 # Шаг 2. Ключи (не логируются)
 # ---------------------------------------------------------------------------
 prompt_secret() {
-  # $1 — текст приглашения; читает с /dev/tty (важно для curl|bash), не эхоит
+  # $1 — текст приглашения; читает с /dev/tty (важно для curl|bash), не эхоит.
+  # Если tty нет (неинтерактивный запуск) — НЕ читает stdin: под curl|bash там
+  # текст самого скрипта, а не ввод пользователя.
   local prompt="$1" value=""
   if [ -n "$HAS_TTY" ]; then
     tty_print "$prompt"
     IFS= read -rs value < /dev/tty || true
     tty_newline
-  else
+  elif [ -t 0 ]; then
     IFS= read -rs value || true
   fi
   printf '%s' "$value"
