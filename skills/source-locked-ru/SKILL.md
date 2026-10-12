@@ -66,6 +66,10 @@ Local-база (снапшот law7, SQLite, без интернета) — дл
 - `search_court_decisions` / `get_court_decision` — документы ВС (описания);
 - `search_publications` / `get_publication` — официальные публикации
   pravo.gov.ru (проверка факта и даты официального опубликования);
+- `search_law_acts(query|doc_number, repealed?, doc_type?, date_from/to?)` —
+  полный корпус актов РФ 1991–2026 (310 тыс., RusLawOD): поиск по номеру и
+  теме, фильтр по статусу («утратил силу» — `repealed=true`);
+- `get_law_act(id)` — полный текст акта + метаданные (орган, статус, дата);
 - `laws_status` — дата снапшота и проверка обновлений.
 
 **Обязательно**: при использовании `laws` указывай «данные по снапшоту от

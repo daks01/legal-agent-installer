@@ -16,6 +16,7 @@ not supported"), info-zip 7z — не у всех. Скрипт копирует
 Использование:
   python3 fix_split_zip.py <merged.zip> [--out fixed.zip] [--disk-size 314572800]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -48,8 +49,12 @@ def find_signature(f, where_from: int, where_to: int, sig: bytes) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("archive", type=Path, help="склеенный multi-disk zip")
-    ap.add_argument("--out", type=Path, default=None, help="куда писать (по умолчанию <архив>_single.zip)")
-    ap.add_argument("--disk-size", type=int, default=314572800, help="размер одного диска (300 МиБ)")
+    ap.add_argument(
+        "--out", type=Path, default=None, help="куда писать (по умолчанию <архив>_single.zip)"
+    )
+    ap.add_argument(
+        "--disk-size", type=int, default=314572800, help="размер одного диска (300 МиБ)"
+    )
     args = ap.parse_args()
 
     src: Path = args.archive
@@ -65,7 +70,7 @@ def main() -> int:
             print(f"= {dst} уже существует и читается — пропускаю")
             return 0
 
-    print(f"▸ Копирую {src.name} → {dst.name} ({size/1024/1024:.0f} МБ)…")
+    print(f"▸ Копирую {src.name} → {dst.name} ({size / 1024 / 1024:.0f} МБ)…")
     shutil.copyfile(src, dst)
 
     with dst.open("r+b") as f:
@@ -81,9 +86,11 @@ def main() -> int:
 
         f.seek(z64_pos)
         z = struct.unpack("<4sQHHLLQQQQ", f.read(56))
-        n_total, cd_size, cd_off_decl, disk_no, cd_disk_no = z[7], z[8], z[9], z[4], z[5]
+        n_total, cd_size, _cd_off_decl, disk_no, cd_disk_no = z[7], z[8], z[9], z[4], z[5]
         cd_start = z64_pos - cd_size
-        print(f"  ZIP64: записей={n_total}, cd@{cd_start}, дисков={disk_no+1}, cd_disk={cd_disk_no}")
+        print(
+            f"  ZIP64: записей={n_total}, cd@{cd_start}, дисков={disk_no + 1}, cd_disk={cd_disk_no}"
+        )
 
         f.seek(cd_start)
         if f.read(4) != CD_SIG:
@@ -99,9 +106,26 @@ def main() -> int:
             if len(hdr) < 46 or hdr[:4] != CD_SIG:
                 print("✗ сломалась цепочка записей каталога", file=sys.stderr)
                 return 1
-            (_sig, _vm, _vn, _flags, _method, _mt, _md, _crc, csize, usize,
-             nl, el, cl, dsk, _ia, _ea, off) = struct.unpack("<4s6H3L5H2L", hdr)
-            name = f.read(nl)
+            (
+                _sig,
+                _vm,
+                _vn,
+                _flags,
+                _method,
+                _mt,
+                _md,
+                _crc,
+                csize,
+                usize,
+                nl,
+                el,
+                cl,
+                dsk,
+                _ia,
+                _ea,
+                off,
+            ) = struct.unpack("<4s6H3L5H2L", hdr)
+            f.read(nl)  # имя записи не нужно
             extra_pos = f.tell()
             extra = f.read(el)
             f.seek(cl, 1)
@@ -151,8 +175,8 @@ def main() -> int:
 
         # --- патчим ZIP64 EOCD (disk@16, cd_disk@20, cd_off@48) ---
         f.seek(z64_pos + 16)
-        f.write(struct.pack("<L", 0))       # disk
-        f.write(struct.pack("<L", 0))       # cd_disk
+        f.write(struct.pack("<L", 0))  # disk
+        f.write(struct.pack("<L", 0))  # cd_disk
         f.seek(z64_pos + 48)
         f.write(struct.pack("<Q", cd_start))
 
@@ -165,9 +189,9 @@ def main() -> int:
                 print("✗ не найден ZIP64 locator", file=sys.stderr)
                 return 1
         f.seek(loc_pos + 4)
-        f.write(struct.pack("<L", 0))       # disk с ZIP64 EOCD
+        f.write(struct.pack("<L", 0))  # disk с ZIP64 EOCD
         f.seek(loc_pos + 16)
-        f.write(struct.pack("<L", 1))       # всего дисков
+        f.write(struct.pack("<L", 1))  # всего дисков
 
         # --- патчим классический EOCD (disk@4, cd_disk@6, cd_off@16) ---
         f.seek(eocd_pos + 4)

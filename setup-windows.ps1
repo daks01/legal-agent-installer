@@ -18,6 +18,7 @@
 
 param(
   [switch]$WithPublications,
+  [switch]$WithRuslaw,
   [switch]$NoDesktop,
   [switch]$Force,
   [string]$ReleaseBaseUrl = "https://github.com/daks01/legal-agent-installer/releases/latest/download",
@@ -250,6 +251,27 @@ if ((Test-Path $lawsDb) -and (-not $Force)) {
     Write-Warn "Не удалось проверить SHA256 (продолжаю)"
   }
   Write-Ok "База законов установлена"
+}
+
+if ($WithRuslaw) {
+  $rusDb = Join-Path $LawData "ruslaw.db"
+  if (-not (Test-Path $rusDb)) {
+    $gz3 = Join-Path $tmp "ruslaw.db.gz"
+    Write-Host "  Скачиваю корпус RusLawOD (~1.1 ГБ)…"
+    Invoke-WebRequest -UseBasicParsing -Uri "$ReleaseBaseUrl/ruslaw.db.gz" -OutFile $gz3
+    Expand-Gzip $gz3 $rusDb
+    try {
+      $shaFile3 = Join-Path $tmp "ruslaw.db.sha256"
+      Invoke-WebRequest -UseBasicParsing -Uri "$ReleaseBaseUrl/ruslaw.db.sha256" -OutFile $shaFile3
+      $expected3 = (Get-Content $shaFile3).Trim()
+      $actual3 = (Get-FileHash -Algorithm SHA256 $rusDb).Hash.ToLower()
+      if ($expected3 -ne $actual3) { Remove-Item -Force $rusDb; Fail "SHA256 корпуса RusLawOD не совпал." "Повторите запуск." }
+      Write-Ok "SHA256 корпуса RusLawOD совпал"
+    } catch { }
+    Write-Ok "Корпус RusLawOD установлен (310 тыс. актов 1991–2026)"
+  } else {
+    Write-Ok "Корпус RusLawOD уже установлен"
+  }
 }
 
 if ($WithPublications) {

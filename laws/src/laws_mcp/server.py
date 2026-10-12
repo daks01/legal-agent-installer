@@ -32,6 +32,7 @@ logger = logging.getLogger("laws-mcp")
 DEFAULT_DIR = Path.home() / ".local" / "share" / "legal-agent" / "law7-lite"
 CORE_DB = Path(os.getenv("LAWS_DB", str(DEFAULT_DIR / "laws.db")))
 PUBLICATIONS_DB = Path(os.getenv("LAWS_PUBLICATIONS_DB", str(DEFAULT_DIR / "laws-publications.db")))
+RUSLAW_DB = Path(os.getenv("LAWS_RUSLAW_DB", str(DEFAULT_DIR / "ruslaw.db")))
 
 LAW7_BACKUP_DOC = "https://raw.githubusercontent.com/mikhashev/law7/main/docs/BACKUP_RESTORE.md"
 UPDATE_CACHE = DEFAULT_DIR / ".update_check.json"
@@ -72,6 +73,16 @@ def _open_core() -> sqlite3.Connection:
             "Установите: bash install.sh (скачает laws.db) — или укажите LAWS_DB=/путь/к/laws.db"
         )
     return sqlite3.connect(f"file:{CORE_DB}?mode=ro", uri=True)
+
+
+def _open_ruslaw() -> sqlite3.Connection:
+    if not RUSLAW_DB.exists():
+        raise ToolError(
+            "База RusLawOD (полный корпус законов 1991–2026) не установлена.\n"
+            "Опциональный компонент (~2 ГБ): bash update-laws.sh --with-ruslaw "
+            "(или install.sh --with-ruslaw)."
+        )
+    return sqlite3.connect(f"file:{RUSLAW_DB}?mode=ro", uri=True)
 
 
 def _open_publications() -> sqlite3.Connection:
@@ -171,12 +182,32 @@ def laws_status(
         },
         "codes": codes,
         "publications_installed": PUBLICATIONS_DB.exists(),
+        "ruslaw_installed": RUSLAW_DB.exists(),
         "source": meta.get("source"),
         "note": (
             "Данные не живые: это снапшот официальных публикаций. "
             "Для актуальности на сегодня сверяйте с первоисточником."
         ),
     }
+    if RUSLAW_DB.exists():
+        try:
+            con2 = _open_ruslaw()
+            row = con2.execute(
+                "SELECT count(*), sum(repealed), min(doc_date), max(doc_date) FROM acts"
+            ).fetchone()
+            m2 = _meta(con2)
+            con2.close()
+            status["ruslaw"] = {
+                "acts": row[0],
+                "repealed": row[1] or 0,
+                "date_min": row[2],
+                "date_max": row[3],
+                "built_at": m2.get("built_at"),
+                "fts": m2.get("fts"),
+                "license": m2.get("license"),
+            }
+        except Exception as exc:  # noqa: BLE001
+            status["ruslaw_error"] = str(exc)
     if check_updates:
         latest = _check_law7_latest()
         status["law7_latest_backup"] = latest.get("latest_backup")
@@ -494,6 +525,124 @@ def get_publication(
             "official_name": row[5],
             "annotation": row[6],
             "url": f"https://publication.pravo.gov.ru/document/{row[0]}",
+        }
+    finally:
+        con.close()
+
+
+@mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True})
+def search_law_acts(
+    query: Annotated[
+        str | None,
+        Field(description="Поиск по названию/тексту акта (FTS), напр. 'о персональных данных'."),
+    ] = None,
+    doc_number: Annotated[
+        str | None,
+        Field(description="Точный номер акта, напр. '152-ФЗ' (может повторяться в разные годы)."),
+    ] = None,
+    repealed: Annotated[
+        bool | None,
+        Field(description="True — только утратившие силу; False — только действующие; None — все."),
+    ] = None,
+    doc_type: Annotated[
+        str | None, Field(description="Тип акта: 'Федеральный закон', 'Указ', 'Постановление'…")
+    ] = None,
+    date_from: Annotated[str | None, Field(description="Дата акта, не ранее (ГГГГ-ММ-ДД).")] = None,
+    date_to: Annotated[str | None, Field(description="Дата акта, не позднее (ГГГГ-ММ-ДД).")] = None,
+    limit: Annotated[int, Field(description="Максимум результатов.", ge=1, le=25)] = 10,
+) -> list[dict[str, Any]]:
+    """Поиск по полному корпусу актов РФ (RusLawOD: 310 тыс. документов 1991–2026).
+
+    Для конкретного закона удобнее doc_number + date-фильтры; для темы — query.
+    Возвращает метаданные и id для get_law_act (полный текст).
+    """
+    if not query and not doc_number:
+        raise ToolError("search_law_acts: укажи query (по теме) или doc_number (точный номер).")
+    con = _open_ruslaw()
+    try:
+        sql = (
+            "SELECT a.id, a.doc_number, a.doc_date, a.doc_type, a.heading, a.status, a.repealed "
+            "FROM acts a"
+        )
+        params: list[Any] = []
+        where: list[str] = []
+        if query:
+            sql += " JOIN acts_fts f ON f.rowid = a.rowid"
+            where.append("acts_fts MATCH ?")
+            params.append(_fts_query(query))
+        if doc_number:
+            where.append("a.doc_number = ?")
+            params.append(doc_number)
+        if repealed is not None:
+            where.append("a.repealed = ?")
+            params.append(1 if repealed else 0)
+        if doc_type:
+            where.append("a.doc_type LIKE ?")
+            params.append(f"%{doc_type}%")
+        if date_from:
+            where.append("a.doc_date >= ?")
+            params.append(date_from)
+        if date_to:
+            where.append("a.doc_date <= ?")
+            params.append(date_to)
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY a.doc_date DESC LIMIT ?"
+        params.append(limit)
+        rows = con.execute(sql, params).fetchall()
+        return [
+            {
+                "id": r[0],
+                "doc_number": r[1],
+                "doc_date": r[2],
+                "doc_type": r[3],
+                "heading": r[4],
+                "status": r[5],
+                "repealed": bool(r[6]),
+            }
+            for r in rows
+        ]
+    finally:
+        con.close()
+
+
+@mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True})
+def get_law_act(
+    act_id: Annotated[str, Field(description="id из search_law_acts (pravogovruNd).")],
+    max_chars: Annotated[
+        int, Field(description="Ограничение длины текста.", ge=1000, le=100000)
+    ] = 60000,
+) -> dict[str, Any]:
+    """Полный текст акта из корпуса RusLawOD + метаданные (статус, орган, дата)."""
+    con = _open_ruslaw()
+    try:
+        row = con.execute(
+            "SELECT id, doc_number, doc_date, heading, doc_type, authority, signed, status, "
+            "repealed, widely_used, classifier, keywords, scraped_at, text FROM acts WHERE id = ?",
+            (act_id,),
+        ).fetchone()
+        if row is None:
+            raise ToolError("Акт не найден по id — проверь search_law_acts.")
+        text = row[13] or ""
+        meta = _meta(con)
+        return {
+            "id": row[0],
+            "doc_number": row[1],
+            "doc_date": row[2],
+            "heading": row[3],
+            "doc_type": row[4],
+            "authority": row[5],
+            "signed": row[6],
+            "status": row[7],
+            "repealed": bool(row[8]),
+            "widely_used": bool(row[9]),
+            "classifier": row[10],
+            "keywords": row[11],
+            "scraped_at": row[12],
+            "text": text[:max_chars],
+            "truncated": len(text) > max_chars,
+            "corpus": "RusLawOD (CC BY-NC 4.0, pet-проект)",
+            "corpus_built_at": meta.get("built_at"),
         }
     finally:
         con.close()

@@ -8,16 +8,19 @@
 #   bash update-laws.sh                          # из релиза (RELEASE_BASE_URL)
 #   bash update-laws.sh /path/laws.db.gz         # из локального файла
 #   bash update-laws.sh --with-publications      # + база публикаций (~160 МБ)
+#   bash update-laws.sh --with-ruslaw            # + корпус RusLawOD (~1.1 ГБ)
 set -euo pipefail
 
 RELEASE_BASE_URL="${RELEASE_BASE_URL:-}"
 DEST="$HOME/.local/share/legal-agent/law7-lite"
 WITH_PUBLICATIONS=0
+WITH_RUSLAW=0
 SRC=""
 
 for arg in "$@"; do
   case "$arg" in
     --with-publications) WITH_PUBLICATIONS=1 ;;
+    --with-ruslaw) WITH_RUSLAW=1 ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) SRC="$arg" ;;
   esac
@@ -62,6 +65,7 @@ install_db() {  # $1 = laws.db | laws-publications.db
 LAWS_DB_SRC_LOCAL="${LAWS_DB_SRC:-}"
 install_db laws.db
 [ "$WITH_PUBLICATIONS" = "1" ] && install_db laws-publications.db
+[ "$WITH_RUSLAW" = "1" ] && install_db ruslaw.db
 
 if command -v python3 >/dev/null 2>&1; then
   python3 - "$DEST/laws.db" <<'PYEOF'

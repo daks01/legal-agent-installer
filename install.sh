@@ -34,6 +34,7 @@ RELEASE_BASE_URL="${RELEASE_BASE_URL:-https://github.com/daks01/legal-agent-inst
 # Источник базы законов для тестов/офлайн-установки: путь к laws.db.gz (или URL).
 LAWS_DB_SRC="${LAWS_DB_SRC:-}"
 WITH_PUBLICATIONS="${WITH_PUBLICATIONS:-0}"
+WITH_RUSLAW="${WITH_RUSLAW:-0}"
 INSTALL_DESKTOP="${INSTALL_DESKTOP:-1}"
 
 # Тестовый/неинтерактивный режим: ключи можно передать через переменные окружения
@@ -445,6 +446,23 @@ install_laws_data() {
     fi
   fi
 
+  if [ "$got" = "1" ] && [ "$WITH_RUSLAW" = "1" ] && [ ! -f "$LAWS_DATA_DIR/ruslaw.db" ] && [ -n "$RELEASE_BASE_URL" ]; then
+    note "Скачиваю полный корпус законов RusLawOD (~1.1 ГБ)…"
+    if curl -fL --silent --show-error "$RELEASE_BASE_URL/ruslaw.db.gz" | gunzip -c > "$LAWS_DATA_DIR/ruslaw.db"; then
+      if curl -fsL "$RELEASE_BASE_URL/ruslaw.db.sha256" -o "$LAWS_DATA_DIR/.expected_sha" 2>/dev/null; then
+        actual_rus="$(shasum -a 256 "$LAWS_DATA_DIR/ruslaw.db" 2>/dev/null | awk '{print $1}')"
+        if [ "$actual_rus" != "$(cat "$LAWS_DATA_DIR/.expected_sha")" ]; then
+          warn "SHA256 корпуса RusLawOD не совпал — удаляю повреждённый файл"
+          rm -f "$LAWS_DATA_DIR/ruslaw.db"
+        fi
+        rm -f "$LAWS_DATA_DIR/.expected_sha"
+      fi
+      [ -f "$LAWS_DATA_DIR/ruslaw.db" ] && ok "Корпус RusLawOD установлен (310 тыс. актов 1991–2026)"
+    else
+      warn "Корпус RusLawOD не скачался (опциональный компонент)"
+    fi
+  fi
+
   if [ "$got" != "1" ]; then
     warn "База законов (laws) не загружена: MCP laws будет выключен."
     note "Установить позже: bash update-laws.sh (или перезапустить install.sh после релиза)."
@@ -637,6 +655,10 @@ summary() {
     "$([ -f "$LAWS_DATA_DIR/laws.db" ] && echo '' || echo ' (выключен — нет базы)')"
   printf '  ✓ База законов:  %s\n' \
     "$([ -f "$LAWS_DATA_DIR/laws.db" ] && echo "$LAWS_DATA_DIR/laws.db (снапшот; обновление: update-laws.sh)" || echo 'не загружена')"
+  printf '  ✓ Корпус актов:  %s\n' \
+    "$([ -f "$LAWS_DATA_DIR/ruslaw.db" ] && echo "$LAWS_DATA_DIR/ruslaw.db (RusLawOD 1991–2026, pet-проект)" || echo 'не установлен (--with-ruslaw)')"
+  printf '  ✓ Публикации:    %s\n' \
+    "$([ -f "$LAWS_DATA_DIR/laws-publications.db" ] && echo 'установлены' || echo 'не установлены (--with-publications)')"
   printf '  ✓ База знаний:   %s\n' "$KNOWLEDGE_BASE"
 
   printf '\n%sЧто дальше:%s\n' "$BOLD" "$NC"
@@ -664,11 +686,13 @@ main() {
   for arg in "$@"; do
     case "$arg" in
       --with-publications) WITH_PUBLICATIONS=1 ;;
+      --with-ruslaw) WITH_RUSLAW=1 ;;
       --no-desktop) INSTALL_DESKTOP=0 ;;
       --help|-h)
         printf 'Использование: bash install.sh [--with-publications]\n'
         printf '  --with-publications — дополнительно скачать базу публикаций pravo.gov.ru (~160 МБ)\n'
         printf '  --no-desktop        — не ставить десктоп-приложение (GUI)\n'
+        printf '  --with-ruslaw       — скачать полный корпус законов RusLawOD (~1.1 ГБ)\n'
         exit 0
         ;;
     esac

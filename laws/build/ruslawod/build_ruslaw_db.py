@@ -9,11 +9,11 @@ meta-сведения о корпусе.
   python3 build_ruslaw_db.py --src corpus_xml_lite_merged_single.zip --out ruslaw.db
   python3 build_ruslaw_db.py ... --fts head   # индексировать первые 4000 символов текста
 """
+
 from __future__ import annotations
 
 import argparse
 import os
-import json
 import sqlite3
 import sys
 import time
@@ -88,8 +88,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--src", required=True, help="single-zip (после fix_split_zip.py)")
     ap.add_argument("--out", required=True, help="путь к ruslaw.db")
-    ap.add_argument("--fts", choices=("full", "head", "off"), default="head",
-                    help="полнотекстовый индекс: всё / первые 4000 символов / без текста")
+    ap.add_argument(
+        "--fts",
+        choices=("full", "head", "off"),
+        default="head",
+        help="полнотекстовый индекс: всё / первые 4000 символов / без текста",
+    )
     ap.add_argument("--limit", type=int, default=0, help="обработать только N актов (отладка)")
     args = ap.parse_args()
 
@@ -129,10 +133,27 @@ CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
             if act is None:
                 skipped += 1
                 continue
-            batch.append(tuple(act[k] for k in (
-                "id", "doc_number", "doc_date", "heading", "doc_type", "authority",
-                "signed", "status", "repealed", "widely_used", "classifier",
-                "keywords", "scraped_at", "text")))
+            batch.append(
+                tuple(
+                    act[k]
+                    for k in (
+                        "id",
+                        "doc_number",
+                        "doc_date",
+                        "heading",
+                        "doc_type",
+                        "authority",
+                        "signed",
+                        "status",
+                        "repealed",
+                        "widely_used",
+                        "classifier",
+                        "keywords",
+                        "scraped_at",
+                        "text",
+                    )
+                )
+            )
             parsed += 1
             if len(batch) >= 500:
                 con.executemany(insert_sql, batch)
@@ -145,7 +166,7 @@ CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
         con.executemany(insert_sql, batch)
     con.commit()
 
-    print(f"▸ распарсено {parsed}, пропущено {skipped} за {time.time()-started:.0f}с", flush=True)
+    print(f"▸ распарсено {parsed}, пропущено {skipped} за {time.time() - started:.0f}с", flush=True)
 
     if args.fts != "off":
         print("▸ строю FTS5…", flush=True)
@@ -164,7 +185,7 @@ CREATE VIRTUAL TABLE acts_fts USING fts5(
 INSERT INTO acts_fts(rowid, heading, keywords, text)
   SELECT rowid, heading, keywords, text FROM acts;
 """)
-        print(f"  FTS готов за {time.time()-t0:.0f}с", flush=True)
+        print(f"  FTS готов за {time.time() - t0:.0f}с", flush=True)
 
     print("▸ индексы и meta…", flush=True)
     con.executescript("""
@@ -174,7 +195,8 @@ CREATE INDEX idx_acts_status ON acts(repealed);
 CREATE INDEX idx_acts_type ON acts(doc_type);
 """)
     counts = con.execute(
-        "SELECT count(*), sum(repealed), max(doc_date), min(doc_date) FROM acts").fetchone()
+        "SELECT count(*), sum(repealed), max(doc_date), min(doc_date) FROM acts"
+    ).fetchone()
     meta = {
         "source": "github.com/irlcode/RusLawOD (corpus_xml_lite)",
         "license": "CC BY-NC 4.0 (некоммерческое; pet-проект)",
@@ -191,8 +213,10 @@ CREATE INDEX idx_acts_type ON acts(doc_type);
     con.close()
 
     size = __import__("os").path.getsize(args.out)
-    print(f"✓ Готово: {args.out} — {size/1024/1024:.0f} МБ, актов {counts[0]}, "
-          f"утратило силу {counts[1] or 0}, даты {counts[3]}…{counts[2]}")
+    print(
+        f"✓ Готово: {args.out} — {size / 1024 / 1024:.0f} МБ, актов {counts[0]}, "
+        f"утратило силу {counts[1] or 0}, даты {counts[3]}…{counts[2]}"
+    )
     return 0
 
 
