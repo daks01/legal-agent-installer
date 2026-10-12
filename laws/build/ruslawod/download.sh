@@ -24,14 +24,30 @@ tr -d '\r' < data.txt | grep "corpus_xml_${VARIANT}" > parts.txt
 [ -s parts.txt ] || { echo "✗ В data.txt нет частей для VARIANT=$VARIANT"; exit 1; }
 echo "  части:"; sed 's/^/    /' parts.txt
 
+remote_size() {
+  curl -s -r 0-0 -D - -o /dev/null --http1.1 "$1" 2>/dev/null | tr -d '\r' \
+    | awk 'tolower($1) == "content-range:" { split($3, a, "/"); print a[2] }'
+}
+
+local_size() {
+  if stat -f%z "$1" >/dev/null 2>&1; then stat -f%z "$1"; else stat -c%s "$1"; fi
+}
+
 while read -r url; do
   file="$(basename "$url")"
-  if [ -s "$file" ]; then
-    echo "  = $file (уже скачана)"
+  expected="$(remote_size "$url")"
+  if [ -f "$file" ] && [ -n "$expected" ] && [ "$(local_size "$file")" = "$expected" ]; then
+    echo "  = $file (уже скачана полностью)"
     continue
   fi
   echo "  ↓ $file …"
-  curl -fL --retry 3 --retry-delay 2 --continue-at - -o "$file" "$url"
+  curl -fL --http1.1 --retry 5 --retry-delay 3 --retry-all-errors \
+       --continue-at - -o "$file" "$url"
+  actual="$(local_size "$file")"
+  if [ -n "$expected" ] && [ "$actual" != "$expected" ]; then
+    echo "  ✗ $file: размер $actual ≠ ожидаемого $expected"
+    exit 1
+  fi
 done < parts.txt
 
 echo "▸ Скачано:"; ls -lh corpus_xml_"$VARIANT"* | awk '{printf "    %s  %s\n", $9, $5}'
