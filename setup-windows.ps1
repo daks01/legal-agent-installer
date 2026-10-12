@@ -145,6 +145,20 @@ Get-ChildItem (Join-Path $src "skills") -Directory | ForEach-Object {
 }
 Write-Ok "Скиллы установлены: $( (Get-ChildItem $SkillsDir -Directory | ForEach-Object { $_.Name }) -join ', ' )"
 
+# Глобальные правила opencode (~/.config/opencode/AGENTS.md — применяются везде)
+$rulesSrc = Join-Path $src "rules\AGENTS.md"
+$rulesDest = Join-Path $ConfigDir "AGENTS.md"
+if (-not (Test-Path $rulesDest)) {
+  Copy-Item $rulesSrc $rulesDest
+  Write-Ok "Глобальные правила: $rulesDest"
+} elseif ((Get-FileHash $rulesSrc).Hash -ne (Get-FileHash $rulesDest).Hash) {
+  Copy-Item $rulesDest "$rulesDest.bak" -Force
+  Copy-Item $rulesSrc $rulesDest -Force
+  Write-Warn "Ваш AGENTS.md сохранён как AGENTS.md.bak"
+} else {
+  Write-Ok "Глобальные правила уже актуальны"
+}
+
 # --- 6. ru-legal (законы, скилл-паки, sub-MCP) ------------------------------
 $ruLegal = Join-Path $LegalHome "ru-legal"
 if (Test-Path (Join-Path $ruLegal "packs")) {

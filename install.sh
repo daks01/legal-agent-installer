@@ -49,6 +49,7 @@ INSTALL_LOG_DIR="${INSTALL_LOG_DIR:-$PWD}"
 TEMPLATE_FILE="$SCRIPT_DIR/templates/opencode.jsonc.template"
 SKILL_SRC="$SCRIPT_DIR/skills/source-locked-ru"
 SUDRF_MCP_SRC="$SCRIPT_DIR/sudrf-scraper-mcp"
+RULES_SRC="$SCRIPT_DIR/rules/AGENTS.md"
 
 # ---------------------------------------------------------------------------
 # Цвета и логирование (лог — без цветовых кодов и без секретов)
@@ -95,6 +96,8 @@ require_resources() {
   [ -f "$SUDRF_MCP_SRC/pyproject.toml" ] || fail "Не найден sudrf-scraper-mcp: $SUDRF_MCP_SRC" \
     "Репозиторий повреждён — скачай его заново."
   [ -f "$SCRIPT_DIR/laws/pyproject.toml" ] || fail "Не найден laws (law7-lite): $SCRIPT_DIR/laws" \
+    "Репозиторий повреждён — скачай его заново."
+  [ -f "$RULES_SRC" ] || fail "Не найдены глобальные правила: $RULES_SRC" \
     "Репозиторий повреждён — скачай его заново."
 }
 
@@ -345,6 +348,23 @@ install_skill() {
     cp "$skill_dir/SKILL.md" "$SKILLS_DIR/$name/SKILL.md"
     ok "Скилл установлен: $name"
   done
+}
+
+install_global_rules() {
+  # Глобальные правила opencode: ~/.config/opencode/AGENTS.md — применяются
+  # автоматически в любой папке (см. docs/rules у opencode).
+  local dest="$OPENCODE_CONFIG_DIR/AGENTS.md"
+  mkdir -p "$OPENCODE_CONFIG_DIR"
+  if [ ! -f "$dest" ]; then
+    cp "$RULES_SRC" "$dest"
+    ok "Глобальные правила установлены: $dest"
+  elif cmp -s "$RULES_SRC" "$dest"; then
+    ok "Глобальные правила уже актуальны"
+  else
+    cp "$dest" "$dest.bak"
+    cp "$RULES_SRC" "$dest"
+    warn "Ваш AGENTS.md сохранён как AGENTS.md.bak, установлены правила агента"
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -610,7 +630,8 @@ summary() {
   fi
   printf '  ✓ uv:            %s\n' "$(command -v uv 2>/dev/null || echo '~/.local/bin/uv')"
   printf '  ✓ Конфиг:        %s\n' "$OPENCODE_CONFIG_FILE"
-  printf '  ✓ Скилл:         %s\n' "$SKILLS_DIR/source-locked-ru/"
+  printf '  ✓ Скиллы:        %s\n' "$SKILLS_DIR"
+  printf '  ✓ Правила:       %s\n' "$OPENCODE_CONFIG_DIR/AGENTS.md"
   printf '  ✓ MCP-серверы:   ru-legal, pravo, kad, egrul%s, laws%s, office-docs, sudrf-scraper\n' \
     "$([ -n "$API_FNS_KEY" ] && echo '' || echo ' (выключен)')" \
     "$([ -f "$LAWS_DATA_DIR/laws.db" ] && echo '' || echo ' (выключен — нет базы)')"
@@ -688,8 +709,9 @@ main() {
   step 3 "Конфигурация OpenCode"
   write_config
 
-  step 4 "Скилл source-locked-ru"
+  step 4 "Скиллы и глобальные правила"
   install_skill
+  install_global_rules
 
   step 5 "MCP-серверы (законы, практика, документы, контрагенты)"
   clone_ru_legal
