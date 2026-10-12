@@ -27,6 +27,7 @@
    - `ru-legal-mcp` — законы РФ + kad.arbitr (через `uvx`)
    - `office-docs-mcp` — чтение/запись Word/Excel (через `uvx`)
    - `sudrf-scraper-mcp` — **кастомный**, обёртка над sudrfscraper
+   - `laws-mcp` — **кастомный**, локальная база права (SQLite, law7-lite)
 5. **sudrfscraper** — JAR-приложение для сбора судебной практики
 6. **Конфиг** `~/.config/opencode/opencode.jsonc` со всеми MCP и DeepSeek
 
@@ -87,7 +88,9 @@ legal-agent-installer/
 ├── install.sh                   # главный bash-скрипт (лог — install.log)
 ├── install.ps1                  # PowerShell-обёртка для Windows (запускает install.sh в WSL)
 ├── uninstall.sh                 # удаление всех следов (критерий G4)
+├── update-laws.sh               # обновление локальной базы законов
 ├── sudrf-scraper-mcp/
+├── laws/                         # локальная база права (SQLite, без Docker)
 │   ├── pyproject.toml
 │   ├── README.md
 │   └── src/sudrf_scraper_mcp/
@@ -111,7 +114,7 @@ legal-agent-installer/
 - [ ] `install.sh` запускается на чистом Ubuntu в WSL без ошибок
 - [ ] Ключ DeepSeek корректно прописывается в `opencode.jsonc` (и не попадает в логи)
 - [ ] `opencode mcp list` после установки видит все MCP:
-      `ru-legal`, `pravo`, `kad`, `office-docs`, `sudrf-scraper`
+      `ru-legal`, `pravo`, `kad`, `egrul`, `laws`, `office-docs`, `sudrf-scraper`
 - [ ] Скилл `source-locked-ru` установлен в `~/.config/opencode/skills/`
 - [ ] Агент может прочитать `.docx` файл из `~/knowledge_base/`
 - [ ] Агент может заполнить шаблон `.docx` и не оставить `{{...}}`

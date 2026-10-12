@@ -23,8 +23,17 @@ RU_LEGAL_REPO="https://github.com/AlsKozlov/ru-legal.git"
 RU_LEGAL_DIR="$LEGAL_AGENT_HOME/ru-legal"
 SUDRF_MCP_DIR="$LEGAL_AGENT_HOME/sudrf-scraper-mcp"
 SUDRF_APP_DIR="$LEGAL_AGENT_HOME/sudrfscraper"
+LAWS_DIR="$LEGAL_AGENT_HOME/laws"
+LAWS_DATA_DIR="$LEGAL_AGENT_HOME/law7-lite"
 SUDRF_RELEASE_TAG="v0.3.0.3"
 GECKODRIVER_VERSION="v0.37.1"
+
+# Базовый URL релиза для скачивания артефактов (laws.db.gz и т.п.).
+# Заполняется на Этапе 6 (GitHub Release); можно переопределить окружением.
+RELEASE_BASE_URL="${RELEASE_BASE_URL:-}"
+# Источник базы законов для тестов/офлайн-установки: путь к laws.db.gz (или URL).
+LAWS_DB_SRC="${LAWS_DB_SRC:-}"
+WITH_PUBLICATIONS="${WITH_PUBLICATIONS:-0}"
 
 # Тестовый/неинтерактивный режим: ключи можно передать через переменные окружения
 DEEPSEEK_KEY="${DEEPSEEK_KEY:-}"
@@ -82,6 +91,8 @@ require_resources() {
   [ -f "$SKILL_SRC/SKILL.md" ] || fail "Не найден скилл: $SKILL_SRC/SKILL.md" \
     "Репозиторий повреждён — скачай его заново."
   [ -f "$SUDRF_MCP_SRC/pyproject.toml" ] || fail "Не найден sudrf-scraper-mcp: $SUDRF_MCP_SRC" \
+    "Репозиторий повреждён — скачай его заново."
+  [ -f "$SCRIPT_DIR/laws/pyproject.toml" ] || fail "Не найден laws (law7-lite): $SCRIPT_DIR/laws" \
     "Репозиторий повреждён — скачай его заново."
 }
 
@@ -284,14 +295,75 @@ copy_sudrf_mcp() {
   ok "sudrf-scraper-mcp разложен в $SUDRF_MCP_DIR"
 }
 
+copy_laws_mcp() {
+  rm -rf "$LAWS_DIR"
+  mkdir -p "$LAWS_DIR"
+  cp -R "$SCRIPT_DIR/laws/." "$LAWS_DIR/"
+  rm -rf "$LAWS_DIR/.ruff_cache" "$LAWS_DIR/src"/*/__pycache__ "$LAWS_DIR/build"/*/__pycache__ 2>/dev/null || true
+  uv cache clean laws-mcp >>"$LOG_FILE" 2>&1 || true
+  ok "laws-mcp разложен в $LAWS_DIR"
+}
+
+install_laws_data() {
+  local name="laws.db" src_gz="" got=0
+  if [ -f "$LAWS_DATA_DIR/$name" ]; then
+    ok "База законов уже установлена: $LAWS_DATA_DIR/$name"
+    got=1
+  else
+    mkdir -p "$LAWS_DATA_DIR"
+    if [ -n "$LAWS_DB_SRC" ] && [ -f "$LAWS_DB_SRC" ]; then
+      gunzip -c "$LAWS_DB_SRC" > "$LAWS_DATA_DIR/$name" && got=1
+      note "База законов взята из LAWS_DB_SRC=$LAWS_DB_SRC"
+    elif [ -f "$SCRIPT_DIR/laws/laws.db.gz" ]; then
+      gunzip -c "$SCRIPT_DIR/laws/laws.db.gz" > "$LAWS_DATA_DIR/$name" && got=1
+      note "База законов взята из локального артефакта репозитория"
+    elif [ -n "$RELEASE_BASE_URL" ]; then
+      note "Скачиваю базу законов (~60 МБ)…"
+      if curl -fL --silent --show-error "$RELEASE_BASE_URL/$name.gz" | gunzip -c > "$LAWS_DATA_DIR/$name"; then
+        got=1
+        if curl -fsL "$RELEASE_BASE_URL/$name.sha256" -o "$LAWS_DATA_DIR/.expected_sha" 2>/dev/null; then
+          local actual; actual="$(shasum -a 256 "$LAWS_DATA_DIR/$name" 2>/dev/null | awk '{print $1}')"
+          if [ "$actual" != "$(cat "$LAWS_DATA_DIR/.expected_sha")" ]; then
+            warn "SHA256 базы законов не совпал — удаляю повреждённый файл"
+            rm -f "$LAWS_DATA_DIR/$name"; got=0
+          fi
+          rm -f "$LAWS_DATA_DIR/.expected_sha"
+        fi
+      fi
+    fi
+    [ "$got" = "1" ] && ok "База законов установлена: $LAWS_DATA_DIR/$name"
+  fi
+
+  if [ "$got" = "1" ] && [ "$WITH_PUBLICATIONS" = "1" ] && [ ! -f "$LAWS_DATA_DIR/laws-publications.db" ] && [ -n "$RELEASE_BASE_URL" ]; then
+    note "Скачиваю базу публикаций (~160 МБ)…"
+    if curl -fL --silent --show-error "$RELEASE_BASE_URL/laws-publications.db.gz" | gunzip -c > "$LAWS_DATA_DIR/laws-publications.db"; then
+      ok "База публикаций установлена"
+    else
+      warn "База публикаций не скачалась (опциональный компонент)"
+    fi
+  fi
+
+  if [ "$got" != "1" ]; then
+    warn "База законов (laws) не загружена: MCP laws будет выключен."
+    note "Установить позже: bash update-laws.sh (или перезапустить install.sh после релиза)."
+    if [ -f "$OPENCODE_CONFIG_FILE" ]; then
+      sed -i.bak '/"laws": {/,/"enabled": true/ s/"enabled": true/"enabled": false/' "$OPENCODE_CONFIG_FILE"
+      rm -f "$OPENCODE_CONFIG_FILE.bak"
+      note "MCP laws выключен в конфиге (enabled: false)"
+    fi
+  fi
+}
+
 check_mcp_servers() {
   local ok_count=0
+  local total=7
   local checks=(
     "ru-legal-mcp|$RU_LEGAL_DIR/mcps/ru-legal-aggregator|ru_legal_mcp"
     "pravo-mcp|$RU_LEGAL_DIR/mcps/pravo|pravo_mcp"
     "kad-mcp|$RU_LEGAL_DIR/mcps/kad|kad_mcp"
     "egrul-mcp|$RU_LEGAL_DIR/mcps/egrul|egrul_mcp"
     "sudrf-scraper-mcp|$SUDRF_MCP_DIR|sudrf_scraper_mcp"
+    "laws-mcp|$LAWS_DIR|laws_mcp"
   )
   for entry in "${checks[@]}"; do
     IFS='|' read -r name dir module <<<"$entry"
@@ -309,7 +381,7 @@ check_mcp_servers() {
   else
     warn "office-docs-mcp — не установился. Проверь интернет и повтори запуск."
   fi
-  ok "MCP-серверы готовы: $ok_count из 6"
+  ok "MCP-серверы готовы: $ok_count из $total"
 }
 
 # ---------------------------------------------------------------------------
@@ -454,8 +526,11 @@ summary() {
   printf '  ✓ uv:            %s\n' "$(command -v uv 2>/dev/null || echo '~/.local/bin/uv')"
   printf '  ✓ Конфиг:        %s\n' "$OPENCODE_CONFIG_FILE"
   printf '  ✓ Скилл:         %s\n' "$SKILLS_DIR/source-locked-ru/"
-  printf '  ✓ MCP-серверы:   ru-legal, pravo, kad, egrul%s, office-docs, sudrf-scraper\n' \
-    "$([ -n "$API_FNS_KEY" ] && echo '' || echo ' (выключен)')"
+  printf '  ✓ MCP-серверы:   ru-legal, pravo, kad, egrul%s, laws%s, office-docs, sudrf-scraper\n' \
+    "$([ -n "$API_FNS_KEY" ] && echo '' || echo ' (выключен)')" \
+    "$([ -f "$LAWS_DATA_DIR/laws.db" ] && echo '' || echo ' (выключен — нет базы)')"
+  printf '  ✓ База законов:  %s\n' \
+    "$([ -f "$LAWS_DATA_DIR/laws.db" ] && echo "$LAWS_DATA_DIR/laws.db (снапшот; обновление: update-laws.sh)" || echo 'не загружена')"
   printf '  ✓ База знаний:   %s\n' "$KNOWLEDGE_BASE"
 
   printf '\n%sЧто дальше:%s\n' "$BOLD" "$NC"
@@ -480,6 +555,17 @@ summary() {
 # Main
 # ---------------------------------------------------------------------------
 main() {
+  for arg in "$@"; do
+    case "$arg" in
+      --with-publications) WITH_PUBLICATIONS=1 ;;
+      --help|-h)
+        printf 'Использование: bash install.sh [--with-publications]\n'
+        printf '  --with-publications — дополнительно скачать базу публикаций pravo.gov.ru (~160 МБ)\n'
+        exit 0
+        ;;
+    esac
+  done
+
   : > "$LOG_FILE"
   printf '%sLegal Agent Installer %s%s — разворачиваю агента-юриста.\n' "$BOLD" "$VERSION" "$NC"
   log "Legal Agent Installer $VERSION — старт"
@@ -504,12 +590,18 @@ main() {
   step 5 "MCP-серверы (законы, практика, документы, контрагенты)"
   clone_ru_legal
   copy_sudrf_mcp
+  copy_laws_mcp
+
+  step 6 "Локальная база законов (law7-lite, без Docker)"
+  install_laws_data
+
+  step 7 "Проверка MCP-серверов"
   check_mcp_servers
 
-  step 6 "sudrfscraper (судебная практика судов общей юрисдикции)"
+  step 8 "sudrfscraper (судебная практика судов общей юрисдикции)"
   install_sudrfscraper
 
-  step 7 "Рабочая папка ~/knowledge_base"
+  step 9 "Рабочая папка ~/knowledge_base"
   create_knowledge_base
 
   summary

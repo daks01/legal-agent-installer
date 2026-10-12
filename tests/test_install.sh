@@ -43,6 +43,7 @@ check "в конфиге есть ru-legal"            grep -q '"ru-legal"' "$OP
 check "в конфиге есть pravo"               grep -q '"pravo"' "$OPENCODE_CONFIG_FILE"
 check "в конфиге есть kad"                 grep -q '"kad"' "$OPENCODE_CONFIG_FILE"
 check "в конфиге есть egrul"               grep -q '"egrul"' "$OPENCODE_CONFIG_FILE"
+check "в конфиге есть laws"                grep -q '"laws"' "$OPENCODE_CONFIG_FILE"
 check "в конфиге есть office-docs"         grep -q '"office-docs"' "$OPENCODE_CONFIG_FILE"
 check "в конфиге есть sudrf-scraper"       grep -q '"sudrf-scraper"' "$OPENCODE_CONFIG_FILE"
 check "нет плейсхолдеров {{...}} в конфиге" bash -c "! grep -q '{{' '$OPENCODE_CONFIG_FILE'"
@@ -50,6 +51,8 @@ check "скилл source-locked-ru установлен"  test -f "$SKILL_FILE"
 check "ru-legal склонирован"               test -d "$LEGAL_AGENT_HOME/ru-legal/packs"
 check "sudrf-scraper-mcp разложен"         test -f "$LEGAL_AGENT_HOME/sudrf-scraper-mcp/pyproject.toml"
 check "sudrfscraper установлен"            test -f "$LEGAL_AGENT_HOME/sudrfscraper/run.sh"
+check "laws-mcp разложен"                  test -f "$LEGAL_AGENT_HOME/laws/pyproject.toml"
+check "база законов (laws.db)"             test -f "$LEGAL_AGENT_HOME/law7-lite/laws.db"
 check "knowledge_base/court_practice"      test -d "$KNOWLEDGE_BASE/court_practice"
 check "knowledge_base/templates"           test -d "$KNOWLEDGE_BASE/templates"
 check "knowledge_base/output"              test -d "$KNOWLEDGE_BASE/output"
@@ -64,7 +67,7 @@ if [ "${SKIP_MCP:-0}" != "1" ] && command -v opencode >/dev/null 2>&1; then
     printf '  %s✗%s opencode mcp list не ответил (проверь PATH и логи)\n' "$RED" "$NC"
     FAIL=$((FAIL + 1))
   else
-    for server in ru-legal pravo kad office-docs sudrf-scraper; do
+    for server in ru-legal pravo kad office-docs sudrf-scraper laws; do
       if printf '%s' "$mcp_out" | grep -q "✓ $server"; then
         printf '  %s✓%s MCP %s: connected\n' "$GREEN" "$NC" "$server"
         PASS=$((PASS + 1))

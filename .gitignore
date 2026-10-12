@@ -1,1 +1,9 @@
 install.log
+dist/
+law7-build/
+laws.db
+laws.db.gz
+laws-publications.db
+laws-publications.db.gz
+*.sha256
+*.tar.gz

@@ -40,6 +40,11 @@
       },
       "enabled": true
     },
+    "laws": {
+      "type": "local",
+      "command": ["uvx", "--from", "{{LEGAL_AGENT_HOME}}/laws", "laws-mcp"],
+      "enabled": true
+    },
     "office-docs": {
       "type": "local",
       "command": ["uvx", "office-docs-mcp", "serve"],
