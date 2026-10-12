@@ -630,3 +630,26 @@ Windows-машина; отметить при тесте на чистой ма�
 cron-сборка (GitHub Actions) свежих law7/RusLawOD → SQLite → новый релиз;
 у пользователя — `update-laws.sh` (проверка sha + докачка); `laws_status`
 сообщает агенту «доступно обновление». Детали — plan.md «Этап 10 (идея)».
+
+---
+
+## RusLawOD: импорт реализован, релиз v0.1.2 (2026-10-12)
+
+- Корпус скачан (split-zip ~1.2 ГБ) и сконвертирован: `laws/build/ruslawod/` —
+  `download.sh` (CRLF/resume/сверка размеров) → `fix_split_zip.py` (multi-disk
+  → single: выяснилось, что у дисков >0 смещения относительны начала диска,
+  плюс правится ZIP64 locator) → `build_ruslaw_db.py` (**310 670 актов за 96 с**,
+  FTS за 64 с).
+- `ruslaw.db`: 6.8 ГБ, **34 793 «Утратил силу»**, даты 1991–2026; **gzip 1.1 ГБ**
+  (влезает в лимит GitHub 2 ГБ одним файлом).
+- MCP `laws`: +`search_law_acts`, +`get_law_act`; `laws_status` показывает корпус.
+  Проверено: ФЗ-152 находится и читается (статус «Действует с изменениями»),
+  фильтр «утратил силу» работает (7 746 актов 1990-х).
+- **Базы в git не хранятся**: `.gitignore` (`*.db`, `*.db.gz`, `corpus_xml_*`,
+  `__pycache__/`); удалён случайно закоммиченный `.pyc`.
+- Пользователь получает базы **готовыми SQLite из релиза** (без конвертации на
+  его машине): `install.sh --with-ruslaw`, `update-laws.sh --with-ruslaw`,
+  `setup-windows.ps1 -WithRuslaw`. Сборка из исходников — только у разработчика
+  (`laws/build/ruslawod/`).
+- Релиз **v0.1.2**: `ruslaw.db.gz` (1084 МБ) + sha256; перезалиты `laws.db.gz`
+  (55 МБ) и `laws-publications.db.gz` (161 МБ), чтобы `releases/latest` отдавал всё.
