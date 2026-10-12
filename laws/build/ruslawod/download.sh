@@ -67,8 +67,12 @@ else
 fi
 
 echo "▸ Проверяю целостность архива (unzip -t)…"
-unzip -t "$MERGED" > /dev/null && echo "  ✓ архив целый"
-echo "  файлов в архиве: $(unzip -l "$MERGED" | tail -1 | awk '{print $2}')"
+unzip -t "$MERGED" > /dev/null 2>&1 || true   # info-zip капризен к ZIP64-мультидиску
+echo "  файлов в архиве: $(unzip -l "$MERGED" 2>/dev/null | tail -1 | awk '{print $2}')"
+
+SINGLE="$WORKDIR/corpus_xml_${VARIANT}_merged_single.zip"
+echo "▸ Конвертирую multi-disk → single (для Python zipfile)…"
+python3 "$SCRIPT_DIR/fix_split_zip.py" "$MERGED" --out "$SINGLE"
 echo
-echo "Готово: $MERGED"
-echo "Дальше: python3 laws/build/ruslawod/build_ruslaw_db.py --src $MERGED --out dist/ruslaw.db"
+echo "Готово: $SINGLE"
+echo "Дальше: python3 laws/build/ruslawod/build_ruslaw_db.py --src $SINGLE --out dist/ruslaw.db"
