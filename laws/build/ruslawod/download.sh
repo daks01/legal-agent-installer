@@ -52,7 +52,23 @@ done < parts.txt
 
 echo "▸ Скачано:"; ls -lh corpus_xml_"$VARIANT"* | awk '{printf "    %s  %s\n", $9, $5}'
 
+# Split-zip: порядок z01..zNN + .zip (последний содержит оглавление).
+MERGED="$WORKDIR/corpus_xml_${VARIANT}_merged.zip"
+zip_main="$(grep -E '\.zip$' parts.txt | xargs -n1 basename | head -1)"
+zparts=""
+while read -r part; do zparts="$zparts $part"; done < <(grep -E '\.z[0-9]+$' parts.txt | xargs -n1 basename)
+
+if [ -f "$MERGED" ] && unzip -t "$MERGED" > /dev/null 2>&1; then
+  echo "  = $MERGED (уже собран)"
+else
+  echo "▸ Собираю части в один архив (z01… + .zip)…"
+  # shellcheck disable=SC2086
+  cat $zparts "$zip_main" > "$MERGED"
+fi
+
 echo "▸ Проверяю целостность архива (unzip -t)…"
-unzip -t "corpus_xml_${VARIANT}.zip" > /dev/null && echo "  ✓ архив целый"
+unzip -t "$MERGED" > /dev/null && echo "  ✓ архив целый"
+echo "  файлов в архиве: $(unzip -l "$MERGED" | tail -1 | awk '{print $2}')"
 echo
-echo "Готово. Дальше: python3 laws/build/ruslawod/build_ruslaw_db.py --src $WORKDIR --out dist/ruslaw.db"
+echo "Готово: $MERGED"
+echo "Дальше: python3 laws/build/ruslawod/build_ruslaw_db.py --src $MERGED --out dist/ruslaw.db"
